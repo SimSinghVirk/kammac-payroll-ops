@@ -40,6 +40,8 @@ if "exceptions" not in st.session_state:
     st.session_state.exceptions = []
 if "audit_log" not in st.session_state:
     st.session_state.audit_log = []
+if "pending_resolutions" not in st.session_state:
+    st.session_state.pending_resolutions = {}
 if "run_status" not in st.session_state:
     st.session_state.run_status = "DRAFT"
 
@@ -477,21 +479,23 @@ if processed is not None:
         employee_lookup[str(row.get("employee_id"))] = row
 
 exception_rows = []
+exception_row_by_id = {}
 for idx, exc in enumerate(exceptions):
     emp = employee_lookup.get(str(exc.employee_id), {})
     name = f"{emp.get('firstname','')} {emp.get('surname','')}".strip()
-    exception_rows.append(
-        {
-            "row_id": idx,
-            "employee_id": exc.employee_id,
-            "name": name,
-            "cost_centre": emp.get("cost_centre", ""),
-            "exception_type": exc.exception_type,
-            "status": exc.status,
-            "dates": _exception_dates(exc.details),
-            "summary": _exception_summary(exc.details),
-        }
-    )
+    row = {
+        "row_id": idx,
+        "exception_id": exc.exception_id,
+        "employee_id": exc.employee_id,
+        "name": name,
+        "cost_centre": emp.get("cost_centre", ""),
+        "exception_type": exc.exception_type,
+        "status": exc.status,
+        "dates": _exception_dates(exc.details),
+        "summary": _exception_summary(exc.details),
+    }
+    exception_rows.append(row)
+    exception_row_by_id[exc.exception_id] = row
 
 def _allowed_actions(exc_type: str) -> list[str]:
     if exc_type == "OVER_HOURS_SALARIED":
@@ -505,6 +509,22 @@ def _allowed_actions(exc_type: str) -> list[str]:
 if not exceptions:
     st.caption("No exceptions.")
 else:
+    st.caption("Edit actions inline. Changes are applied only when you click Apply All Approvals.")
+    show_open_only = st.checkbox("Show open exceptions only", value=True)
+    per_page = st.selectbox("Exceptions per page", [10, 25, 50, 100], index=1)
+
+    visible_exceptions = open_exceptions if show_open_only else exceptions
+    total_pages = max(1, (len(visible_exceptions) + per_page - 1) // per_page)
+    page = st.number_input("Page", min_value=1, max_value=total_pages, value=1, step=1)
+    start_idx = (page - 1) * per_page
+    end_idx = start_idx + per_page
+    visible_exceptions = visible_exceptions[start_idx:end_idx]
+
+    if not visible_exceptions:
+        st.caption("No exceptions in this view.")
+    apply_col = st.columns([1, 1, 6])
+    apply_clicked = apply_col[0].button("Apply All Approvals")
+
     header = st.columns([1.2, 2.2, 1.6, 2.2, 2.6, 1.2, 2.2])
     header[0].write("Employee")
     header[1].write("Name")
@@ -514,8 +534,22 @@ else:
     header[5].write("Status")
     header[6].write("Actions")
 
-    for idx, exc in enumerate(exceptions):
-        row = exception_rows[idx]
+    pending_updates: dict[str, dict] = {}
+
+    for exc in visible_exceptions:
+        # find row data
+        row = exception_row_by_id.get(exc.exception_id)
+        if row is None:
+            row = {
+                "exception_id": exc.exception_id,
+                "employee_id": exc.employee_id,
+                "name": "",
+                "cost_centre": "",
+                "exception_type": exc.exception_type,
+                "status": exc.status,
+                "dates": _exception_dates(exc.details),
+                "summary": _exception_summary(exc.details),
+            }
         info = st.columns([1.2, 2.2, 1.6, 2.2, 2.6, 1.2, 2.2])
         info[0].write(row["employee_id"])
         info[1].write(row["name"])
@@ -526,7 +560,7 @@ else:
 
         action_col = info[6]
         actions = _allowed_actions(exc.exception_type)
-        action_key = f"action_{idx}"
+        action_key = f"action_{exc.exception_id}"
         selected_action = action_col.selectbox(
             "Action",
             actions,
@@ -542,50 +576,64 @@ else:
                 "Deduction days",
                 min_value=0.0,
                 step=0.5,
-                key=f"ded_days_{idx}",
+                key=f"ded_days_{exc.exception_id}",
             )
             extra_fields["deduction_hours"] = controls[1].number_input(
                 "Deduction hours",
                 min_value=0.0,
                 step=0.25,
-                key=f"ded_hours_{idx}",
+                key=f"ded_hours_{exc.exception_id}",
             )
         elif selected_action == "approve_overtime":
             extra_fields["overtime_hours"] = controls[0].number_input(
                 "Overtime hours",
                 min_value=0.0,
                 step=0.5,
-                key=f"ot_hours_{idx}",
+                key=f"ot_hours_{exc.exception_id}",
             )
         elif selected_action == "custom_adjustment":
             extra_fields["custom_hours_delta"] = controls[0].number_input(
                 "Custom hours (+/-)",
                 value=0.0,
                 step=0.25,
-                key=f"custom_hours_{idx}",
+                key=f"custom_hours_{exc.exception_id}",
             )
 
         comment = controls[3].text_input(
             "Comment",
-            key=f"comment_{idx}",
+            key=f"comment_{exc.exception_id}",
         )
-        save = controls[4].button("Save", key=f"save_{idx}")
+        controls[4].write("")
 
-        if save:
-            if not operator_name.strip():
-                st.error("Operator name required")
-            elif not comment.strip():
-                st.error("Comment required")
-            else:
-                exc.resolution = {"action": selected_action, **extra_fields}
-                exc.prepared_by = operator_name
+        pending_updates[exc.exception_id] = {
+            "action": selected_action,
+            "details": extra_fields,
+            "comment": comment,
+        }
+
+    if apply_clicked:
+        effective_operator = operator_name.strip() if operator_name.strip() else (app_username or "")
+        if not effective_operator:
+            st.error("Operator name required")
+        else:
+            missing_comments = []
+            applied = 0
+            for exc in exceptions:
+                pending = pending_updates.get(exc.exception_id)
+                if not pending:
+                    continue
+                if not pending.get("comment", "").strip():
+                    missing_comments.append(exc.employee_id)
+                    continue
+                exc.resolution = {"action": pending["action"], **pending["details"]}
+                exc.prepared_by = effective_operator
                 exc.prepared_at = datetime.utcnow()
-                exc.approved_by = operator_name
+                exc.approved_by = effective_operator
                 exc.approved_at = datetime.utcnow()
                 exc.comments.append(
                     {
-                        "comment": comment,
-                        "author": operator_name,
+                        "comment": pending["comment"],
+                        "author": effective_operator,
                         "timestamp": datetime.utcnow().isoformat(),
                     }
                 )
@@ -595,13 +643,17 @@ else:
                         "timestamp": datetime.utcnow().isoformat(),
                         "employee_id": exc.employee_id,
                         "exception_type": exc.exception_type,
-                        "action": selected_action,
-                        "details": extra_fields,
-                        "comment": comment,
-                        "operator": operator_name,
+                        "action": pending["action"],
+                        "details": pending["details"],
+                        "comment": pending["comment"],
+                        "operator": effective_operator,
                     }
                 )
-                st.success("Resolution saved")
+                applied += 1
+            if missing_comments:
+                st.error(f"Comments required for: {', '.join(missing_comments[:10])}")
+            if applied:
+                st.success(f"Applied approvals: {applied}")
 
     if processed is not None:
         # Optional diagnostics (hidden by default)
