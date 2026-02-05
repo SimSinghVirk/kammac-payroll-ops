@@ -473,6 +473,12 @@ def _exception_summary(details: dict) -> str:
         return f"codes={', '.join([str(c) for c in codes if c])}"
     return ""
 
+def _truncate(text: str, limit: int = 40) -> str:
+    if text is None:
+        return ""
+    text = str(text)
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
 employee_lookup = {}
 if processed is not None:
     for _, row in processed["employee_df"].iterrows():
@@ -525,14 +531,14 @@ else:
     apply_col = st.columns([1, 1, 6])
     apply_clicked = apply_col[0].button("Apply All Approvals")
 
-    header = st.columns([1.2, 2.2, 1.6, 2.2, 2.6, 1.2, 2.2])
-    header[0].write("Employee")
-    header[1].write("Name")
-    header[2].write("Cost Centre")
-    header[3].write("Type")
-    header[4].write("Dates / Summary")
-    header[5].write("Status")
-    header[6].write("Actions")
+    header = st.columns([1.2, 2.4, 2.2, 2.2, 3.2, 1.2, 3.0])
+    header[0].markdown("**Employee**")
+    header[1].markdown("**Name**")
+    header[2].markdown("**Cost Centre**")
+    header[3].markdown("**Type**")
+    header[4].markdown("**Dates / Summary**")
+    header[5].markdown("**Status**")
+    header[6].markdown("**Actions**")
 
     pending_updates: dict[str, dict] = {}
 
@@ -550,12 +556,13 @@ else:
                 "dates": _exception_dates(exc.details),
                 "summary": _exception_summary(exc.details),
             }
-        info = st.columns([1.2, 2.2, 1.6, 2.2, 2.6, 1.2, 2.2])
+        info = st.columns([1.2, 2.4, 2.2, 2.2, 3.2, 1.2, 3.0])
         info[0].write(row["employee_id"])
-        info[1].write(row["name"])
-        info[2].write(row["cost_centre"])
-        info[3].write(row["exception_type"])
-        info[4].write(f"{row['dates']} {row['summary']}".strip())
+        info[1].write(_truncate(row["name"], 28))
+        info[2].write(_truncate(row["cost_centre"], 24))
+        info[3].write(_truncate(row["exception_type"], 28))
+        summary_text = f"{row['dates']} {row['summary']}".strip()
+        info[4].write(_truncate(summary_text, 60))
         info[5].write(row["status"])
 
         action_col = info[6]
@@ -610,6 +617,15 @@ else:
             "details": extra_fields,
             "comment": comment,
         }
+
+        with st.expander("Details", expanded=False):
+            st.write(f"Employee: {row['employee_id']}  |  {row['name']}")
+            st.write(f"Cost Centre: {row['cost_centre']}")
+            st.write(f"Type: {row['exception_type']}  |  Status: {row['status']}")
+            st.write(f"Dates: {row['dates']}")
+            st.write(f"Summary: {row['summary']}")
+            st.json(exc.details)
+        st.markdown("---")
 
     if apply_clicked:
         effective_operator = operator_name.strip() if operator_name.strip() else (app_username or "")
