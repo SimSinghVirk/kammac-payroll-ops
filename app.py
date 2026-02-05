@@ -769,7 +769,7 @@ if processed is not None:
             synel_period = processed.get("synel_period")
             if synel_period is not None and not synel_period.empty:
                 period_days = synel_period["Date"].nunique()
-        weeks_in_period = period_days / 7.0 if period_days else 0.0
+        weeks_in_period = int(period_days / 7.0 + 0.9999) if period_days else 0
         fire_marshal_weekly = row.get("fm_fa_weekly") or 0.0
         fire_marshal_pay = fire_marshal_weekly * weeks_in_period
 
