@@ -493,126 +493,162 @@ for idx, exc in enumerate(exceptions):
         }
     )
 
-exceptions_df = pd.DataFrame(exception_rows)
-if not exceptions_df.empty:
-    st.dataframe(
-        exceptions_df.drop(columns=["row_id"]),
-        use_container_width=True,
-        hide_index=True,
-    )
+def _allowed_actions(exc_type: str) -> list[str]:
+    if exc_type == "OVER_HOURS_SALARIED":
+        return ["approve_paid", "approve_overtime", "custom_adjustment"]
+    if exc_type in ["UNDER_HOURS_SALARIED", "NO_PUNCHES_SALARIED", "MISSING_PUNCH_DAY"]:
+        return ["approve_paid", "deduct_unpaid_days", "custom_adjustment"]
+    if exc_type == "ABSENCE_CODE_UNKNOWN":
+        return ["acknowledge"]
+    return ["approve_paid", "custom_adjustment"]
 
-if processed is not None and exceptions:
-    # Diagnostics for missing punch exceptions
-    missing_rows = [e for e in exceptions if e.exception_type == "MISSING_PUNCH_DAY"]
-    if missing_rows:
-        diag_rows = []
-        synel_period = processed.get("synel_period")
-        if synel_period is not None:
-            for exc in missing_rows:
-                date_val = exc.details.get("date")
-                emp = str(exc.employee_id)
-                matches = synel_period[
-                    (synel_period["Emp No"].astype(str).str.strip() == emp)
-                    & (synel_period["Date"] == date_val)
-                ]
-                if matches.empty:
-                    diag_rows.append(
-                        {
-                            "employee_id": emp,
-                            "date": date_val,
-                            "IN_1": "",
-                            "OUT_1": "",
-                            "IN_2": "",
-                            "OUT_2": "",
-                            "ABS_1": "",
-                            "ABS_2": "",
-                            "note": "No row found",
-                        }
-                    )
-                else:
-                    for _, row in matches.iterrows():
-                        diag_rows.append(
-                            {
-                                "employee_id": emp,
-                                "date": row.get("Date"),
-                                "IN_1": row.get("IN_1", ""),
-                                "OUT_1": row.get("OUT_1", ""),
-                                "IN_2": row.get("IN_2", ""),
-                                "OUT_2": row.get("OUT_2", ""),
-                                "ABS_1": row.get("ABS_HALF_DAY_1", ""),
-                                "ABS_2": row.get("ABS_HALF_DAY_2", ""),
-                                "note": "",
-                            }
-                        )
-            st.subheader("Missing Punch Diagnostics")
-            st.caption("Shows the exact IN/OUT and absence values that triggered missing punch exceptions.")
-            st.dataframe(pd.DataFrame(diag_rows), use_container_width=True, hide_index=True)
+if not exceptions:
+    st.caption("No exceptions.")
+else:
+    header = st.columns([1.2, 2.2, 1.6, 2.2, 2.6, 1.2, 2.2])
+    header[0].write("Employee")
+    header[1].write("Name")
+    header[2].write("Cost Centre")
+    header[3].write("Type")
+    header[4].write("Dates / Summary")
+    header[5].write("Status")
+    header[6].write("Actions")
 
-if exceptions:
-    exc_options = [
-        f"{row['employee_id']} | {row['name']} | {row['exception_type']} | {row['status']}"
-        for row in exception_rows
-    ]
-    selection = st.selectbox("Select exception", exc_options)
-    exc_index = exc_options.index(selection)
-    exc = exceptions[exc_index]
+    for idx, exc in enumerate(exceptions):
+        row = exception_rows[idx]
+        info = st.columns([1.2, 2.2, 1.6, 2.2, 2.6, 1.2, 2.2])
+        info[0].write(row["employee_id"])
+        info[1].write(row["name"])
+        info[2].write(row["cost_centre"])
+        info[3].write(row["exception_type"])
+        info[4].write(f"{row['dates']} {row['summary']}".strip())
+        info[5].write(row["status"])
 
-    st.write("Exception details")
-    st.json(exc.details)
-
-    st.write("Resolution")
-    resolution_action = st.selectbox(
-        "Action",
-        ["approve_paid", "deduct_unpaid_days", "approve_overtime", "custom_adjustment"],
-    )
-
-    extra_fields: dict[str, float] = {}
-    if resolution_action == "deduct_unpaid_days":
-        extra_fields["deduction_days"] = st.number_input("Deduction days (0.5 steps)", min_value=0.0, step=0.5)
-        extra_fields["deduction_hours"] = st.number_input("Deduction hours", min_value=0.0, step=0.25)
-    if resolution_action == "approve_overtime":
-        extra_fields["overtime_hours"] = st.number_input("Overtime hours", min_value=0.0, step=0.5)
-    if resolution_action == "custom_adjustment":
-        extra_fields["custom_hours_delta"] = st.number_input(
-            "Custom hours adjustment (+ add / - deduct)",
-            value=0.0,
-            step=0.25,
+        action_col = info[6]
+        actions = _allowed_actions(exc.exception_type)
+        action_key = f"action_{idx}"
+        selected_action = action_col.selectbox(
+            "Action",
+            actions,
+            key=action_key,
+            label_visibility="collapsed",
         )
 
-    comment = st.text_area("Mandatory comment")
-    approve = st.button("Save Resolution")
+        controls = st.columns([2.2, 2.2, 2.2, 3.2, 1.2])
+        extra_fields: dict[str, float] = {}
 
-    if approve:
-        if not operator_name.strip():
-            st.error("Operator name required")
-        elif not comment.strip():
-            st.error("Comment required")
-        else:
-            exc.resolution = {"action": resolution_action, **extra_fields}
-            exc.prepared_by = operator_name
-            exc.prepared_at = datetime.utcnow()
-            exc.approved_by = operator_name
-            exc.approved_at = datetime.utcnow()
-            exc.comments.append(
-                {
-                    "comment": comment,
-                    "author": operator_name,
-                    "timestamp": datetime.utcnow().isoformat(),
-                }
+        if selected_action == "deduct_unpaid_days":
+            extra_fields["deduction_days"] = controls[0].number_input(
+                "Deduction days",
+                min_value=0.0,
+                step=0.5,
+                key=f"ded_days_{idx}",
             )
-            exc.status = "APPROVED"
-            st.session_state.audit_log.append(
-                {
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "employee_id": exc.employee_id,
-                    "exception_type": exc.exception_type,
-                    "action": resolution_action,
-                    "details": extra_fields,
-                    "comment": comment,
-                    "operator": operator_name,
-                }
+            extra_fields["deduction_hours"] = controls[1].number_input(
+                "Deduction hours",
+                min_value=0.0,
+                step=0.25,
+                key=f"ded_hours_{idx}",
             )
-            st.success("Resolution saved")
+        elif selected_action == "approve_overtime":
+            extra_fields["overtime_hours"] = controls[0].number_input(
+                "Overtime hours",
+                min_value=0.0,
+                step=0.5,
+                key=f"ot_hours_{idx}",
+            )
+        elif selected_action == "custom_adjustment":
+            extra_fields["custom_hours_delta"] = controls[0].number_input(
+                "Custom hours (+/-)",
+                value=0.0,
+                step=0.25,
+                key=f"custom_hours_{idx}",
+            )
+
+        comment = controls[3].text_input(
+            "Comment",
+            key=f"comment_{idx}",
+        )
+        save = controls[4].button("Save", key=f"save_{idx}")
+
+        if save:
+            if not operator_name.strip():
+                st.error("Operator name required")
+            elif not comment.strip():
+                st.error("Comment required")
+            else:
+                exc.resolution = {"action": selected_action, **extra_fields}
+                exc.prepared_by = operator_name
+                exc.prepared_at = datetime.utcnow()
+                exc.approved_by = operator_name
+                exc.approved_at = datetime.utcnow()
+                exc.comments.append(
+                    {
+                        "comment": comment,
+                        "author": operator_name,
+                        "timestamp": datetime.utcnow().isoformat(),
+                    }
+                )
+                exc.status = "APPROVED"
+                st.session_state.audit_log.append(
+                    {
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "employee_id": exc.employee_id,
+                        "exception_type": exc.exception_type,
+                        "action": selected_action,
+                        "details": extra_fields,
+                        "comment": comment,
+                        "operator": operator_name,
+                    }
+                )
+                st.success("Resolution saved")
+
+    if processed is not None:
+        # Optional diagnostics (hidden by default)
+        with st.expander("Diagnostics (optional)"):
+            missing_rows = [e for e in exceptions if e.exception_type == "MISSING_PUNCH_DAY"]
+            if missing_rows:
+                diag_rows = []
+                synel_period = processed.get("synel_period")
+                if synel_period is not None:
+                    for exc in missing_rows:
+                        date_val = exc.details.get("date")
+                        emp = str(exc.employee_id)
+                        matches = synel_period[
+                            (synel_period["Emp No"].astype(str).str.strip() == emp)
+                            & (synel_period["Date"] == date_val)
+                        ]
+                        if matches.empty:
+                            diag_rows.append(
+                                {
+                                    "employee_id": emp,
+                                    "date": date_val,
+                                    "IN_1": "",
+                                    "OUT_1": "",
+                                    "IN_2": "",
+                                    "OUT_2": "",
+                                    "ABS_1": "",
+                                    "ABS_2": "",
+                                    "note": "No row found",
+                                }
+                            )
+                        else:
+                            for _, row in matches.iterrows():
+                                diag_rows.append(
+                                    {
+                                        "employee_id": emp,
+                                        "date": row.get("Date"),
+                                        "IN_1": row.get("IN_1", ""),
+                                        "OUT_1": row.get("OUT_1", ""),
+                                        "IN_2": row.get("IN_2", ""),
+                                        "OUT_2": row.get("OUT_2", ""),
+                                        "ABS_1": row.get("ABS_HALF_DAY_1", ""),
+                                        "ABS_2": row.get("ABS_HALF_DAY_2", ""),
+                                        "note": "",
+                                    }
+                                )
+                    st.caption("Missing punch rows with exact IN/OUT values.")
+                    st.dataframe(pd.DataFrame(diag_rows), use_container_width=True, hide_index=True)
 
 st.subheader("5. Audit Log")
 if st.session_state.audit_log:
