@@ -515,9 +515,9 @@ def _allowed_actions(exc_type: str) -> list[str]:
 if not exceptions:
     st.caption("No exceptions.")
 else:
-    st.caption("Edit actions inline. Changes are applied only when you click Apply All Approvals.")
+    st.caption("Use the table to review. Expand a row to edit. Click Apply All Approvals to save.")
     show_open_only = st.checkbox("Show open exceptions only", value=True)
-    per_page = st.selectbox("Exceptions per page", [10, 25, 50, 100], index=1)
+    per_page = st.selectbox("Exceptions per page", [10, 20, 30, 50], index=0)
 
     visible_exceptions = open_exceptions if show_open_only else exceptions
     total_pages = max(1, (len(visible_exceptions) + per_page - 1) // per_page)
@@ -528,22 +528,21 @@ else:
 
     if not visible_exceptions:
         st.caption("No exceptions in this view.")
+
     apply_col = st.columns([1, 1, 6])
     apply_clicked = apply_col[0].button("Apply All Approvals")
 
-    header = st.columns([1.2, 2.4, 2.2, 2.2, 3.2, 1.2, 3.0])
+    header = st.columns([1.2, 2.4, 2.2, 2.2, 3.2, 1.2])
     header[0].markdown("**Employee**")
     header[1].markdown("**Name**")
     header[2].markdown("**Cost Centre**")
     header[3].markdown("**Type**")
     header[4].markdown("**Dates / Summary**")
     header[5].markdown("**Status**")
-    header[6].markdown("**Actions**")
 
     pending_updates: dict[str, dict] = {}
 
     for exc in visible_exceptions:
-        # find row data
         row = exception_row_by_id.get(exc.exception_id)
         if row is None:
             row = {
@@ -556,7 +555,8 @@ else:
                 "dates": _exception_dates(exc.details),
                 "summary": _exception_summary(exc.details),
             }
-        info = st.columns([1.2, 2.4, 2.2, 2.2, 3.2, 1.2, 3.0])
+
+        info = st.columns([1.2, 2.4, 2.2, 2.2, 3.2, 1.2])
         info[0].write(row["employee_id"])
         info[1].write(_truncate(row["name"], 28))
         info[2].write(_truncate(row["cost_centre"], 24))
@@ -565,65 +565,59 @@ else:
         info[4].write(_truncate(summary_text, 60))
         info[5].write(row["status"])
 
-        action_col = info[6]
-        actions = _allowed_actions(exc.exception_type)
-        action_key = f"action_{exc.exception_id}"
-        selected_action = action_col.selectbox(
-            "Action",
-            actions,
-            key=action_key,
-            label_visibility="collapsed",
-        )
-
-        controls = st.columns([2.2, 2.2, 2.2, 3.2, 1.2])
-        extra_fields: dict[str, float] = {}
-
-        if selected_action == "deduct_unpaid_days":
-            extra_fields["deduction_days"] = controls[0].number_input(
-                "Deduction days",
-                min_value=0.0,
-                step=0.5,
-                key=f"ded_days_{exc.exception_id}",
-            )
-            extra_fields["deduction_hours"] = controls[1].number_input(
-                "Deduction hours",
-                min_value=0.0,
-                step=0.25,
-                key=f"ded_hours_{exc.exception_id}",
-            )
-        elif selected_action == "approve_overtime":
-            extra_fields["overtime_hours"] = controls[0].number_input(
-                "Overtime hours",
-                min_value=0.0,
-                step=0.5,
-                key=f"ot_hours_{exc.exception_id}",
-            )
-        elif selected_action == "custom_adjustment":
-            extra_fields["custom_hours_delta"] = controls[0].number_input(
-                "Custom hours (+/-)",
-                value=0.0,
-                step=0.25,
-                key=f"custom_hours_{exc.exception_id}",
+        with st.expander(f"Edit {row['employee_id']} | {row['exception_type']}", expanded=False):
+            actions = _allowed_actions(exc.exception_type)
+            selected_action = st.selectbox(
+                "Action",
+                actions,
+                key=f"action_{exc.exception_id}",
             )
 
-        comment = controls[3].text_input(
-            "Comment",
-            key=f"comment_{exc.exception_id}",
-        )
-        controls[4].write("")
+            extra_fields: dict[str, float] = {}
+            if selected_action == "deduct_unpaid_days":
+                extra_fields["deduction_days"] = st.number_input(
+                    "Deduction days",
+                    min_value=0.0,
+                    step=0.5,
+                    key=f"ded_days_{exc.exception_id}",
+                )
+                extra_fields["deduction_hours"] = st.number_input(
+                    "Deduction hours",
+                    min_value=0.0,
+                    step=0.25,
+                    key=f"ded_hours_{exc.exception_id}",
+                )
+            elif selected_action == "approve_overtime":
+                extra_fields["overtime_hours"] = st.number_input(
+                    "Overtime hours",
+                    min_value=0.0,
+                    step=0.5,
+                    key=f"ot_hours_{exc.exception_id}",
+                )
+            elif selected_action == "custom_adjustment":
+                extra_fields["custom_hours_delta"] = st.number_input(
+                    "Custom hours (+/-)",
+                    value=0.0,
+                    step=0.25,
+                    key=f"custom_hours_{exc.exception_id}",
+                )
 
-        pending_updates[exc.exception_id] = {
-            "action": selected_action,
-            "details": extra_fields,
-            "comment": comment,
-        }
+            comment = st.text_input(
+                "Comment",
+                key=f"comment_{exc.exception_id}",
+            )
 
-        with st.expander("Details", expanded=False):
-            st.write(f"Employee: {row['employee_id']}  |  {row['name']}")
-            st.write(f"Cost Centre: {row['cost_centre']}")
-            st.write(f"Type: {row['exception_type']}  |  Status: {row['status']}")
-            st.write(f"Dates: {row['dates']}")
-            st.write(f"Summary: {row['summary']}")
+            pending_updates[exc.exception_id] = {
+                "action": selected_action,
+                "details": extra_fields,
+                "comment": comment,
+            }
+
+            st.markdown(
+                f"**Details:** {row['summary']}\n\n"
+                f"- Dates: {row['dates']}\n"
+                f"- Cost Centre: {row['cost_centre']}\n"
+            )
             st.json(exc.details)
         st.markdown("---")
 
@@ -725,8 +719,86 @@ if st.session_state.audit_log:
 else:
     st.caption("No audit entries yet.")
 
+st.subheader("6. Final Review")
+if processed is not None:
+    exceptions_by_emp: dict[str, list[ExceptionRecord]] = {}
+    for exc in exceptions:
+        exceptions_by_emp.setdefault(str(exc.employee_id), []).append(exc)
 
-st.subheader("6. Export")
+    review_rows = []
+    for _, row in processed["employee_df"].iterrows():
+        employee_id = str(row.get("employee_id"))
+        pay_basis = row.get("pay_basis")
+        weekly_hours = row.get("weekly_hours") or 0.0
+        standard_hours = row.get("standard_monthly_hours") or 0.0
+        annual_salary = row.get("basic_pay_value") or 0.0
+        hourly_rate = 0.0
+        if weekly_hours:
+            hourly_rate = annual_salary / (weekly_hours * 52.0)
+
+        deduction_days = 0.0
+        deduction_hours = 0.0
+        custom_hours_delta = 0.0
+        overtime_hours = 0.0
+        for exc in exceptions_by_emp.get(employee_id, []):
+            if not exc.is_resolved():
+                continue
+            resolution = exc.resolution or {}
+            action = resolution.get("action")
+            if action == "deduct_unpaid_days":
+                deduction_days += float(resolution.get("deduction_days") or 0.0)
+                deduction_hours += float(resolution.get("deduction_hours") or 0.0)
+            if action == "approve_overtime":
+                overtime_hours += float(resolution.get("overtime_hours") or 0.0)
+            if action == "custom_adjustment":
+                custom_hours_delta += float(resolution.get("custom_hours_delta") or 0.0)
+
+        hours_per_day = (weekly_hours / 5.0) if weekly_hours else 0.0
+        final_base_hours = standard_hours - (deduction_days * hours_per_day) - deduction_hours + custom_hours_delta
+        if final_base_hours < 0:
+            final_base_hours = 0.0
+
+        base_monthly_pay = annual_salary / 12.0 if pay_basis == "SALARIED" else hourly_rate * final_base_hours
+        deduction_money = (deduction_days * hours_per_day + deduction_hours) * hourly_rate
+        custom_money = custom_hours_delta * hourly_rate
+        overtime_money = overtime_hours * hourly_rate
+        total_money = base_monthly_pay - deduction_money + custom_money + overtime_money
+
+        review_rows.append(
+            {
+                "Employee Id": employee_id,
+                "Name": f"{row.get('firstname','')} {row.get('surname','')}".strip(),
+                "Cost Centre": row.get("cost_centre", ""),
+                "Pay Basis": pay_basis,
+                "Base Monthly Hours": round(standard_hours, 2),
+                "Final Base Hours": round(final_base_hours, 2),
+                "Deduction Days": round(deduction_days, 2),
+                "Deduction Hours": round(deduction_hours, 2),
+                "Overtime Hours": round(overtime_hours, 2),
+                "Custom Hours Delta": round(custom_hours_delta, 2),
+                "Hourly Rate (est)": round(hourly_rate, 4),
+                "Base Monthly Pay": round(base_monthly_pay, 2),
+                "Deduction Money": round(deduction_money, 2),
+                "Custom Money": round(custom_money, 2),
+                "Overtime Money": round(overtime_money, 2),
+                "Total Pay (est)": round(total_money, 2),
+            }
+        )
+
+    review_df = pd.DataFrame(review_rows)
+    st.dataframe(review_df, use_container_width=True, hide_index=True)
+    review_csv = review_df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "Download Final Review CSV",
+        data=review_csv,
+        file_name=f"FINAL_REVIEW_{st.session_state.run_id}.csv",
+        mime="text/csv",
+    )
+else:
+    st.caption("Run processing to generate the final review report.")
+
+
+st.subheader("7. Export")
 
 all_resolved = all(exc.is_resolved() for exc in exceptions)
 processing_blocking = processed.get("blocking") if processed else []
