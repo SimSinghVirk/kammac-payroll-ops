@@ -501,6 +501,53 @@ if not exceptions_df.empty:
         hide_index=True,
     )
 
+if processed is not None and exceptions:
+    # Diagnostics for missing punch exceptions
+    missing_rows = [e for e in exceptions if e.exception_type == "MISSING_PUNCH_DAY"]
+    if missing_rows:
+        diag_rows = []
+        synel_period = processed.get("synel_period")
+        if synel_period is not None:
+            for exc in missing_rows:
+                date_val = exc.details.get("date")
+                emp = str(exc.employee_id)
+                matches = synel_period[
+                    (synel_period["Emp No"].astype(str).str.strip() == emp)
+                    & (synel_period["Date"] == date_val)
+                ]
+                if matches.empty:
+                    diag_rows.append(
+                        {
+                            "employee_id": emp,
+                            "date": date_val,
+                            "IN_1": "",
+                            "OUT_1": "",
+                            "IN_2": "",
+                            "OUT_2": "",
+                            "ABS_1": "",
+                            "ABS_2": "",
+                            "note": "No row found",
+                        }
+                    )
+                else:
+                    for _, row in matches.iterrows():
+                        diag_rows.append(
+                            {
+                                "employee_id": emp,
+                                "date": row.get("Date"),
+                                "IN_1": row.get("IN_1", ""),
+                                "OUT_1": row.get("OUT_1", ""),
+                                "IN_2": row.get("IN_2", ""),
+                                "OUT_2": row.get("OUT_2", ""),
+                                "ABS_1": row.get("ABS_HALF_DAY_1", ""),
+                                "ABS_2": row.get("ABS_HALF_DAY_2", ""),
+                                "note": "",
+                            }
+                        )
+            st.subheader("Missing Punch Diagnostics")
+            st.caption("Shows the exact IN/OUT and absence values that triggered missing punch exceptions.")
+            st.dataframe(pd.DataFrame(diag_rows), use_container_width=True, hide_index=True)
+
 if exceptions:
     exc_options = [
         f"{row['employee_id']} | {row['name']} | {row['exception_type']} | {row['status']}"
