@@ -156,6 +156,7 @@ with st.sidebar:
     skip_pay_elements_validation = st.checkbox("Skip Pay Elements Validation (temporary)")
     ignore_non_numeric_emp_no = st.checkbox("Ignore non-numeric Emp No rows (temporary)")
     ignore_unmapped_zero_activity = st.checkbox("Ignore unmapped with zero activity (temporary)")
+    employee_id_length = st.number_input("Employee ID length (pad)", min_value=0, max_value=12, value=5, step=1)
 
 
 mapping_df = None
@@ -506,6 +507,7 @@ if can_process:
                     hourly_threshold=float(hourly_threshold),
                     variance_tolerance=float(variance_tolerance),
                     ignore_unmapped_zero_activity=ignore_unmapped_zero_activity,
+                    employee_id_length=int(employee_id_length) if employee_id_length else None,
                 ),
             )
             st.session_state.processed = processed

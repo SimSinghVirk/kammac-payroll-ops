@@ -20,6 +20,7 @@ class ProcessingConfig:
     hourly_threshold: float = 100.0
     variance_tolerance: float = 0.5
     ignore_unmapped_zero_activity: bool = False
+    employee_id_length: int | None = None
 
 
 def normalize_synel_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -122,8 +123,10 @@ def process_run(
     synel_period["Emp No"] = synel_period["Emp No"].astype(str).str.strip()
 
     # Normalize ID lengths to preserve leading zeros
-    id_lengths = mapping_df["Employee Id"].astype(str).str.len()
-    id_len = int(id_lengths.max()) if not id_lengths.empty else 0
+    id_len = int(config.employee_id_length or 0)
+    if not id_len:
+        id_lengths = mapping_df["Employee Id"].astype(str).str.len()
+        id_len = int(id_lengths.max()) if not id_lengths.empty else 0
 
     def _pad_id(value: str) -> str:
         if value.isdigit() and id_len:
@@ -411,6 +414,7 @@ def process_run(
                 "surname": mapping_row.get("Surname"),
                 "location": mapping_row.get("Location"),
                 "cost_centre": mapping_row.get("COST CENTRE"),
+                "basic_pay_value": mapping_row.get("basic_pay_value"),
                 "car_allowance": coerce_numeric(mapping_row.get("Car allowance")) or 0.0,
                 "fm_fa_weekly": coerce_numeric(mapping_row.get("FM/FA- WEEKLY")) or 0.0,
                 "pay_basis": pay_basis,
