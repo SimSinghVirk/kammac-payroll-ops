@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import io
 import json
+import pickle
+import time
 from datetime import datetime
 import uuid
 
@@ -42,6 +44,78 @@ if "audit_log" not in st.session_state:
     st.session_state.audit_log = []
 if "pending_resolutions" not in st.session_state:
     st.session_state.pending_resolutions = {}
+
+# --- Session persistence (login + run state) ---
+def _session_token() -> str:
+    token = st.session_state.get("session_token")
+    if token:
+        return token
+    qp = st.query_params
+    token = qp.get("session")
+    if not token:
+        token = str(uuid.uuid4())
+        qp["session"] = token
+        st.rerun()
+    st.session_state.session_token = token
+    return token
+
+
+def _sessions_file() -> Path:
+    return Path("/tmp/kammac_sessions.json")
+
+
+def _snapshot_file(token: str) -> Path:
+    return Path(f"/tmp/kammac_snapshot_{token}.pkl")
+
+
+def _load_sessions() -> dict:
+    path = _sessions_file()
+    if path.exists():
+        try:
+            return json.loads(path.read_text())
+        except Exception:
+            return {}
+    return {}
+
+
+def _save_sessions(data: dict) -> None:
+    _sessions_file().write_text(json.dumps(data))
+
+
+def _save_snapshot(token: str) -> None:
+    snapshot = {
+        "run_id": st.session_state.run_id,
+        "run_status": st.session_state.run_status,
+        "exceptions": st.session_state.exceptions,
+        "audit_log": st.session_state.audit_log,
+        "processed": st.session_state.get("processed"),
+        "export_df": st.session_state.get("export_df"),
+    }
+    with _snapshot_file(token).open("wb") as fh:
+        pickle.dump(snapshot, fh)
+
+
+def _load_snapshot(token: str) -> None:
+    path = _snapshot_file(token)
+    if not path.exists():
+        return
+    try:
+        with path.open("rb") as fh:
+            snapshot = pickle.load(fh)
+        st.session_state.run_id = snapshot.get("run_id", st.session_state.run_id)
+        st.session_state.run_status = snapshot.get("run_status", st.session_state.run_status)
+        st.session_state.exceptions = snapshot.get("exceptions", st.session_state.exceptions)
+        st.session_state.audit_log = snapshot.get("audit_log", st.session_state.audit_log)
+        if snapshot.get("processed") is not None:
+            st.session_state.processed = snapshot.get("processed")
+        if snapshot.get("export_df") is not None:
+            st.session_state.export_df = snapshot.get("export_df")
+    except Exception:
+        pass
+
+
+token = _session_token()
+_load_snapshot(token)
 if "run_status" not in st.session_state:
     st.session_state.run_status = "DRAFT"
 
@@ -72,6 +146,10 @@ with st.sidebar:
     if st.session_state.get("logged_in"):
         if st.button("Log out"):
             st.session_state.logged_in = False
+            sessions = _load_sessions()
+            if token in sessions:
+                sessions.pop(token)
+                _save_sessions(sessions)
             st.rerun()
 
     st.header("Validation Overrides")
@@ -156,6 +234,11 @@ auth_required = bool(app_username and app_password)
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
+# Restore login from local session store if present
+sessions = _load_sessions()
+if token in sessions and sessions[token].get("logged_in"):
+    st.session_state.logged_in = True
+
 if auth_required and not st.session_state.logged_in:
     st.subheader("Login Required")
     username_input = st.text_input("Username")
@@ -163,6 +246,9 @@ if auth_required and not st.session_state.logged_in:
     if st.button("Log in"):
         if username_input == app_username and password_input == app_password:
             st.session_state.logged_in = True
+            sessions = _load_sessions()
+            sessions[token] = {"logged_in": True, "ts": int(time.time())}
+            _save_sessions(sessions)
             st.rerun()
         else:
             st.error("Invalid username or password")
@@ -425,6 +511,7 @@ if can_process:
             st.session_state.processed = processed
             st.session_state.exceptions = processed["exceptions"]
             st.session_state.run_status = "VALIDATED"
+            _save_snapshot(token)
         except Exception as exc:
             st.error(f"Processing failed: {exc}")
 
@@ -656,6 +743,7 @@ else:
             applied += 1
         if applied:
             st.success(f"Applied approvals: {applied}")
+            _save_snapshot(token)
             st.rerun()
 
     if processed is not None:
@@ -835,6 +923,7 @@ if export_ready:
             )
             st.session_state.export_df = export_df
             st.session_state.run_status = "READY_TO_EXPORT"
+            _save_snapshot(token)
         except Exception as exc:
             st.error(f"Export failed: {exc}")
 
