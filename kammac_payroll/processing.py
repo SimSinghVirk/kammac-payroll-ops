@@ -121,6 +121,18 @@ def process_run(
     mapping_df["Employee Id"] = mapping_df["Employee Id"].astype(str).str.strip()
     synel_period["Emp No"] = synel_period["Emp No"].astype(str).str.strip()
 
+    # Normalize ID lengths to preserve leading zeros
+    id_lengths = mapping_df["Employee Id"].astype(str).str.len()
+    id_len = int(id_lengths.max()) if not id_lengths.empty else 0
+
+    def _pad_id(value: str) -> str:
+        if value.isdigit() and id_len:
+            return value.zfill(id_len)
+        return value
+
+    mapping_df["Employee Id"] = mapping_df["Employee Id"].apply(_pad_id)
+    synel_period["Emp No"] = synel_period["Emp No"].apply(_pad_id)
+
     if "Payroll Type" not in mapping_df.columns:
         if "COST CENTRE" not in mapping_df.columns:
             raise ValueError(
