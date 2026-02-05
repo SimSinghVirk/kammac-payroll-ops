@@ -44,6 +44,14 @@ def coerce_numeric(value: Any) -> float | None:
             return None
         # Remove common currency symbols and thousand separators.
         cleaned = cleaned.replace("£", "").replace(",", "")
+        # Handle HH:MM or HH:MM:SS time strings as hours.
+        if ":" in cleaned:
+            parts = cleaned.split(":")
+            if len(parts) in (2, 3) and all(p.isdigit() for p in parts):
+                hours = int(parts[0])
+                minutes = int(parts[1])
+                seconds = int(parts[2]) if len(parts) == 3 else 0
+                return hours + minutes / 60.0 + seconds / 3600.0
         try:
             return float(cleaned)
         except ValueError:
