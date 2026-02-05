@@ -529,117 +529,111 @@ else:
     if not visible_exceptions:
         st.caption("No exceptions in this view.")
 
-    apply_col = st.columns([1, 1, 6])
-    apply_clicked = apply_col[0].button("Apply All Approvals")
+    with st.form("exception_approvals_form", clear_on_submit=False):
+        header = st.columns([1.2, 2.4, 2.2, 2.2, 3.2, 1.2])
+        header[0].markdown("**Employee**")
+        header[1].markdown("**Name**")
+        header[2].markdown("**Cost Centre**")
+        header[3].markdown("**Type**")
+        header[4].markdown("**Dates / Summary**")
+        header[5].markdown("**Status**")
 
-    header = st.columns([1.2, 2.4, 2.2, 2.2, 3.2, 1.2])
-    header[0].markdown("**Employee**")
-    header[1].markdown("**Name**")
-    header[2].markdown("**Cost Centre**")
-    header[3].markdown("**Type**")
-    header[4].markdown("**Dates / Summary**")
-    header[5].markdown("**Status**")
+        pending_updates: dict[str, dict] = {}
 
-    pending_updates: dict[str, dict] = {}
+        for exc in visible_exceptions:
+            row = exception_row_by_id.get(exc.exception_id)
+            if row is None:
+                row = {
+                    "exception_id": exc.exception_id,
+                    "employee_id": exc.employee_id,
+                    "name": "",
+                    "cost_centre": "",
+                    "exception_type": exc.exception_type,
+                    "status": exc.status,
+                    "dates": _exception_dates(exc.details),
+                    "summary": _exception_summary(exc.details),
+                }
 
-    for exc in visible_exceptions:
-        row = exception_row_by_id.get(exc.exception_id)
-        if row is None:
-            row = {
-                "exception_id": exc.exception_id,
-                "employee_id": exc.employee_id,
-                "name": "",
-                "cost_centre": "",
-                "exception_type": exc.exception_type,
-                "status": exc.status,
-                "dates": _exception_dates(exc.details),
-                "summary": _exception_summary(exc.details),
-            }
+            info = st.columns([1.2, 2.4, 2.2, 2.2, 3.2, 1.2])
+            info[0].write(row["employee_id"])
+            info[1].write(_truncate(row["name"], 28))
+            info[2].write(_truncate(row["cost_centre"], 24))
+            info[3].write(_truncate(row["exception_type"], 28))
+            summary_text = f"{row['dates']} {row['summary']}".strip()
+            info[4].write(_truncate(summary_text, 60))
+            info[5].write(row["status"])
 
-        info = st.columns([1.2, 2.4, 2.2, 2.2, 3.2, 1.2])
-        info[0].write(row["employee_id"])
-        info[1].write(_truncate(row["name"], 28))
-        info[2].write(_truncate(row["cost_centre"], 24))
-        info[3].write(_truncate(row["exception_type"], 28))
-        summary_text = f"{row['dates']} {row['summary']}".strip()
-        info[4].write(_truncate(summary_text, 60))
-        info[5].write(row["status"])
-
-        with st.expander(f"Edit {row['employee_id']} | {row['exception_type']}", expanded=False):
-            actions = _allowed_actions(exc.exception_type)
-            selected_action = st.selectbox(
-                "Action",
-                actions,
-                key=f"action_{exc.exception_id}",
-            )
-
-            extra_fields: dict[str, float] = {}
-            if selected_action == "deduct_unpaid_days":
-                extra_fields["deduction_days"] = st.number_input(
-                    "Deduction days",
-                    min_value=0.0,
-                    step=0.5,
-                    key=f"ded_days_{exc.exception_id}",
-                )
-                extra_fields["deduction_hours"] = st.number_input(
-                    "Deduction hours",
-                    min_value=0.0,
-                    step=0.25,
-                    key=f"ded_hours_{exc.exception_id}",
-                )
-            elif selected_action == "approve_overtime":
-                extra_fields["overtime_hours"] = st.number_input(
-                    "Overtime hours",
-                    min_value=0.0,
-                    step=0.5,
-                    key=f"ot_hours_{exc.exception_id}",
-                )
-            elif selected_action == "custom_adjustment":
-                extra_fields["custom_hours_delta"] = st.number_input(
-                    "Custom hours (+/-)",
-                    value=0.0,
-                    step=0.25,
-                    key=f"custom_hours_{exc.exception_id}",
+            with st.expander(f"Edit {row['employee_id']} | {row['exception_type']}", expanded=False):
+                actions = _allowed_actions(exc.exception_type)
+                selected_action = st.selectbox(
+                    "Action",
+                    actions,
+                    key=f"action_{exc.exception_id}",
                 )
 
-            comment = st.text_input(
-                "Comment",
-                key=f"comment_{exc.exception_id}",
-            )
+                extra_fields: dict[str, float] = {}
+                if selected_action == "deduct_unpaid_days":
+                    extra_fields["deduction_days"] = st.number_input(
+                        "Deduction days",
+                        min_value=0.0,
+                        step=0.5,
+                        key=f"ded_days_{exc.exception_id}",
+                    )
+                    extra_fields["deduction_hours"] = st.number_input(
+                        "Deduction hours",
+                        min_value=0.0,
+                        step=0.25,
+                        key=f"ded_hours_{exc.exception_id}",
+                    )
+                elif selected_action == "approve_overtime":
+                    extra_fields["overtime_hours"] = st.number_input(
+                        "Overtime hours",
+                        min_value=0.0,
+                        step=0.5,
+                        key=f"ot_hours_{exc.exception_id}",
+                    )
+                elif selected_action == "custom_adjustment":
+                    extra_fields["custom_hours_delta"] = st.number_input(
+                        "Custom hours (+/-)",
+                        value=0.0,
+                        step=0.25,
+                        key=f"custom_hours_{exc.exception_id}",
+                    )
 
-            pending_updates[exc.exception_id] = {
-                "action": selected_action,
-                "details": extra_fields,
-                "comment": comment,
-            }
+                comment = st.text_input(
+                    "Comment (optional)",
+                    key=f"comment_{exc.exception_id}",
+                )
 
-            st.markdown(
-                f"**Details:** {row['summary']}\n\n"
-                f"- Dates: {row['dates']}\n"
-                f"- Cost Centre: {row['cost_centre']}\n"
-            )
-            st.json(exc.details)
-        st.markdown("---")
+                pending_updates[exc.exception_id] = {
+                    "action": selected_action,
+                    "details": extra_fields,
+                    "comment": comment,
+                }
+
+                st.markdown(
+                    f"**Details:** {row['summary']}\n\n"
+                    f"- Dates: {row['dates']}\n"
+                    f"- Cost Centre: {row['cost_centre']}\n"
+                )
+                st.json(exc.details)
+            st.markdown("---")
+
+        apply_clicked = st.form_submit_button("Apply All Approvals")
 
     if apply_clicked:
-        effective_operator = operator_name.strip() if operator_name.strip() else (app_username or "")
-        if not effective_operator:
-            st.error("Operator name required")
-        else:
-            missing_comments = []
-            applied = 0
-            for exc in exceptions:
-                pending = pending_updates.get(exc.exception_id)
-                if not pending:
-                    continue
-                if not pending.get("comment", "").strip():
-                    missing_comments.append(exc.employee_id)
-                    continue
-                exc.resolution = {"action": pending["action"], **pending["details"]}
-                exc.prepared_by = effective_operator
-                exc.prepared_at = datetime.utcnow()
-                exc.approved_by = effective_operator
-                exc.approved_at = datetime.utcnow()
+        effective_operator = operator_name.strip() if operator_name.strip() else (app_username or "unknown")
+        applied = 0
+        for exc in exceptions:
+            pending = pending_updates.get(exc.exception_id)
+            if not pending:
+                continue
+            exc.resolution = {"action": pending["action"], **pending["details"]}
+            exc.prepared_by = effective_operator
+            exc.prepared_at = datetime.utcnow()
+            exc.approved_by = effective_operator
+            exc.approved_at = datetime.utcnow()
+            if pending.get("comment"):
                 exc.comments.append(
                     {
                         "comment": pending["comment"],
@@ -647,23 +641,22 @@ else:
                         "timestamp": datetime.utcnow().isoformat(),
                     }
                 )
-                exc.status = "APPROVED"
-                st.session_state.audit_log.append(
-                    {
-                        "timestamp": datetime.utcnow().isoformat(),
-                        "employee_id": exc.employee_id,
-                        "exception_type": exc.exception_type,
-                        "action": pending["action"],
-                        "details": pending["details"],
-                        "comment": pending["comment"],
-                        "operator": effective_operator,
-                    }
-                )
-                applied += 1
-            if missing_comments:
-                st.error(f"Comments required for: {', '.join(missing_comments[:10])}")
-            if applied:
-                st.success(f"Applied approvals: {applied}")
+            exc.status = "APPROVED"
+            st.session_state.audit_log.append(
+                {
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "employee_id": exc.employee_id,
+                    "exception_type": exc.exception_type,
+                    "action": pending["action"],
+                    "details": pending["details"],
+                    "comment": pending["comment"],
+                    "operator": effective_operator,
+                }
+            )
+            applied += 1
+        if applied:
+            st.success(f"Applied approvals: {applied}")
+            st.rerun()
 
     if processed is not None:
         # Optional diagnostics (hidden by default)
