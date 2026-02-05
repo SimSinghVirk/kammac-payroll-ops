@@ -63,12 +63,12 @@ def _paid_unpaid_maps(absence_df: pd.DataFrame) -> tuple[set[str], set[str]]:
     return paid, unpaid
 
 
-def _extract_absence_days(row: pd.Series) -> dict[str, float]:
+def _extract_absence_days(row: pd.Series, has_second_half: bool) -> dict[str, float]:
     code1 = safe_str(row.get("ABS_HALF_DAY_1")).upper()
     code2 = safe_str(row.get("ABS_HALF_DAY_2")).upper()
     days: dict[str, float] = {}
     if code1:
-        days[code1] = days.get(code1, 0.0) + 0.5
+        days[code1] = days.get(code1, 0.0) + (0.5 if has_second_half else 1.0)
     if code2:
         days[code2] = days.get(code2, 0.0) + 0.5
     return days
@@ -305,8 +305,9 @@ def process_run(
         paid_absence_days = 0.0
         unknown_absence_rows: list[dict[str, Any]] = []
 
+        has_second_abs = "ABS_HALF_DAY_2" in group.columns
         for _, row in group.iterrows():
-            days = _extract_absence_days(row)
+            days = _extract_absence_days(row, has_second_abs)
             if not days:
                 continue
             for code, day_count in days.items():
@@ -329,7 +330,7 @@ def process_run(
             if not _row_missing_punch(row):
                 continue
             # If unpaid absence explains missing punch, skip creating missing-punch exception
-            day_absences = _extract_absence_days(row)
+            day_absences = _extract_absence_days(row, has_second_abs)
             unpaid_present = any(code in unpaid_codes for code in day_absences.keys())
             if unpaid_present:
                 continue

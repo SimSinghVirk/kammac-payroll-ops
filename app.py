@@ -882,8 +882,7 @@ if processed is not None:
             + fire_marshal_pay
         )
 
-        review_rows.append(
-            {
+        row_out = {
                 "Employee Id": employee_id,
                 "Name": f"{row.get('firstname','')} {row.get('surname','')}".strip(),
                 "Cost Centre": row.get("cost_centre", ""),
@@ -906,12 +905,20 @@ if processed is not None:
                 "FM/FA Pay": round(fire_marshal_pay, 2),
                 "Total Pay (est)": round(total_money, 2),
             }
-        )
 
         # Add absence code breakdown columns
         abs_map = row.get("absence_days_by_code") or {}
         for code in absence_codes:
-            review_rows[-1][f"Absence {code} Days"] = round(abs_map.get(code, 0.0), 2)
+            days = abs_map.get(code, 0.0)
+            row_out[f"Absence {code} Days"] = round(days, 2)
+            # Estimate pay impact per code
+            if pay_basis == "SALARIED":
+                daily_rate = row.get("daily_rate") or 0.0
+                row_out[f"Absence {code} Pay"] = round(days * daily_rate, 2)
+            else:
+                row_out[f"Absence {code} Pay"] = round(days * hours_per_day * hourly_rate, 2)
+
+        review_rows.append(row_out)
 
     review_df = pd.DataFrame(review_rows)
     st.dataframe(review_df, use_container_width=True, hide_index=True)
