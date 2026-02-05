@@ -762,7 +762,25 @@ if processed is not None:
         deduction_money = (deduction_days * hours_per_day + deduction_hours) * hourly_rate
         custom_money = custom_hours_delta * hourly_rate
         overtime_money = overtime_hours * hourly_rate
-        total_money = base_monthly_pay - deduction_money + custom_money + overtime_money
+        # Allowances
+        car_allowance = row.get("car_allowance") or 0.0
+        period_days = 0
+        if processed is not None:
+            synel_period = processed.get("synel_period")
+            if synel_period is not None and not synel_period.empty:
+                period_days = synel_period["Date"].nunique()
+        weeks_in_period = period_days / 7.0 if period_days else 0.0
+        fire_marshal_weekly = row.get("fm_fa_weekly") or 0.0
+        fire_marshal_pay = fire_marshal_weekly * weeks_in_period
+
+        total_money = (
+            base_monthly_pay
+            - deduction_money
+            + custom_money
+            + overtime_money
+            + car_allowance
+            + fire_marshal_pay
+        )
 
         review_rows.append(
             {
@@ -781,6 +799,10 @@ if processed is not None:
                 "Deduction Money": round(deduction_money, 2),
                 "Custom Money": round(custom_money, 2),
                 "Overtime Money": round(overtime_money, 2),
+                "Car Allowance": round(car_allowance, 2),
+                "FM/FA Weekly": round(fire_marshal_weekly, 2),
+                "FM/FA Weeks": round(weeks_in_period, 3),
+                "FM/FA Pay": round(fire_marshal_pay, 2),
                 "Total Pay (est)": round(total_money, 2),
             }
         )

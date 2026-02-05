@@ -399,6 +399,8 @@ def process_run(
                 "surname": mapping_row.get("Surname"),
                 "location": mapping_row.get("Location"),
                 "cost_centre": mapping_row.get("COST CENTRE"),
+                "car_allowance": coerce_numeric(mapping_row.get("Car allowance")) or 0.0,
+                "fm_fa_weekly": coerce_numeric(mapping_row.get("FM/FA- WEEKLY")) or 0.0,
                 "pay_basis": pay_basis,
                 "weekly_hours": weekly_hours,
                 "standard_monthly_hours": standard_monthly_hours,
