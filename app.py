@@ -808,9 +808,24 @@ if processed is not None:
     for exc in exceptions:
         exceptions_by_emp.setdefault(str(exc.employee_id), []).append(exc)
 
+    # Build a stable list of absence codes from mapping
+    absence_codes = []
+    if absence_df is not None and "Short Name" in absence_df.columns:
+        absence_codes = (
+            absence_df["Short Name"]
+            .astype(str)
+            .str.strip()
+            .str.upper()
+            .tolist()
+        )
+        absence_codes = [c for c in absence_codes if c]
+    absence_codes = sorted(set(absence_codes))
+
     review_rows = []
     for _, row in processed["employee_df"].iterrows():
         employee_id = str(row.get("employee_id"))
+        if employee_id_length:
+            employee_id = employee_id.zfill(int(employee_id_length))
         pay_basis = row.get("pay_basis")
         weekly_hours = row.get("weekly_hours") or 0.0
         standard_hours = row.get("standard_monthly_hours") or 0.0
@@ -873,6 +888,7 @@ if processed is not None:
                 "Name": f"{row.get('firstname','')} {row.get('surname','')}".strip(),
                 "Cost Centre": row.get("cost_centre", ""),
                 "Pay Basis": pay_basis,
+                "Annual Salary": round(annual_salary, 2) if pay_basis == "SALARIED" else "",
                 "Base Monthly Hours": round(standard_hours, 2),
                 "Final Base Hours": round(final_base_hours, 2),
                 "Deduction Days": round(deduction_days, 2),
@@ -891,6 +907,11 @@ if processed is not None:
                 "Total Pay (est)": round(total_money, 2),
             }
         )
+
+        # Add absence code breakdown columns
+        abs_map = row.get("absence_days_by_code") or {}
+        for code in absence_codes:
+            review_rows[-1][f"Absence {code} Days"] = round(abs_map.get(code, 0.0), 2)
 
     review_df = pd.DataFrame(review_rows)
     st.dataframe(review_df, use_container_width=True, hide_index=True)

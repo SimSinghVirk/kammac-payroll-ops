@@ -423,6 +423,7 @@ def process_run(
                 "actual_hours": actual_hours,
                 "paid_absence_days": paid_absence_days,
                 "unpaid_absence_days": unpaid_absence_days,
+                "absence_days_by_code": absence_days,
                 "daily_rate_divisor": divisor,
                 "daily_rate": daily_rate,
             }
