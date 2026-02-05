@@ -67,6 +67,10 @@ with st.sidebar:
     drive_folder_id = st.text_input("Drive Folder ID")
 
     operator_name = st.text_input("Operator Name")
+    if st.session_state.get("logged_in"):
+        if st.button("Log out"):
+            st.session_state.logged_in = False
+            st.rerun()
 
     st.header("Validation Overrides")
     skip_pay_elements_validation = st.checkbox("Skip Pay Elements Validation (temporary)")
@@ -97,6 +101,17 @@ def _load_secrets_manual() -> tuple[dict | None, dict]:
     return None, debug
 
 
+def _get_secret_value(key: str, manual: dict | None) -> str | None:
+    try:
+        if key in st.secrets:
+            return st.secrets[key]
+    except StreamlitSecretNotFoundError:
+        pass
+    if manual and key in manual:
+        return manual[key]
+    return None
+
+
 credentials_info = None
 try:
     if "GOOGLE_SERVICE_ACCOUNT_JSON" in st.secrets:
@@ -112,8 +127,8 @@ except StreamlitSecretNotFoundError:
     credentials_info = None
 
 manual_debug = None
+manual, manual_debug = _load_secrets_manual()
 if credentials_info is None:
-    manual, manual_debug = _load_secrets_manual()
     if manual and "GOOGLE_SERVICE_ACCOUNT_JSON" in manual:
         try:
             manual_value = manual["GOOGLE_SERVICE_ACCOUNT_JSON"]
@@ -131,6 +146,25 @@ if credentials_info is None:
             credentials_info = json.loads(env_json)
         except json.JSONDecodeError:
             st.error("Invalid Google service account JSON")
+
+app_username = _get_secret_value("APP_USERNAME", manual)
+app_password = _get_secret_value("APP_PASSWORD", manual)
+auth_required = bool(app_username and app_password)
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
+if auth_required and not st.session_state.logged_in:
+    st.subheader("Login Required")
+    username_input = st.text_input("Username")
+    password_input = st.text_input("Password", type="password")
+    if st.button("Log in"):
+        if username_input == app_username and password_input == app_password:
+            st.session_state.logged_in = True
+            st.rerun()
+        else:
+            st.error("Invalid username or password")
+    st.stop()
 
 st.subheader("1. Load Mapping Data")
 if credentials_info is None:
