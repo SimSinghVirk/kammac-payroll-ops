@@ -340,11 +340,12 @@ def process_run(
                 {"rows": unknown_absence_rows},
             )
 
-        for date_value in missing_punch_dates:
-            add_exception(
-                "MISSING_PUNCH_DAY",
-                {"date": date_value},
-            )
+        if pay_basis == "SALARIED":
+            for date_value in missing_punch_dates:
+                add_exception(
+                    "MISSING_PUNCH_DAY",
+                    {"date": date_value},
+                )
 
         # No punches salaried
         if pay_basis == "SALARIED":
@@ -371,15 +372,6 @@ def process_run(
 
         # Over/under hours exceptions
         if pay_basis == "SALARIED" and standard_monthly_hours is not None:
-            if actual_hours > standard_monthly_hours + config.variance_tolerance:
-                add_exception(
-                    "OVER_HOURS_SALARIED",
-                    {
-                        "actual_hours": actual_hours,
-                        "expected_hours": standard_monthly_hours,
-                        "tolerance": config.variance_tolerance,
-                    },
-                )
             if actual_hours < standard_monthly_hours - config.variance_tolerance:
                 add_exception(
                     "UNDER_HOURS_SALARIED",
