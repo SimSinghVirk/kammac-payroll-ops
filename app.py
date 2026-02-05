@@ -726,7 +726,9 @@ if processed is not None:
         standard_hours = row.get("standard_monthly_hours") or 0.0
         annual_salary = row.get("basic_pay_value") or 0.0
         hourly_rate = 0.0
-        if weekly_hours:
+        if pay_basis == "HOURLY":
+            hourly_rate = annual_salary
+        elif weekly_hours:
             hourly_rate = annual_salary / (weekly_hours * 52.0)
 
         deduction_days = 0.0
