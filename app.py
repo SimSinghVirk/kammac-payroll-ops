@@ -160,8 +160,9 @@ with st.sidebar:
     ignore_unmapped_zero_activity = st.checkbox("Ignore unmapped with zero activity (temporary)")
     employee_id_length = st.number_input("Employee ID length (pad)", min_value=0, max_value=12, value=5, step=1)
     excluded_locations = []
-    if mapping_df is not None:
-        loc_df = mapping_df.copy()
+    mapping_preview = st.session_state.get("mapping_df")
+    if mapping_preview is not None:
+        loc_df = mapping_preview.copy()
         if "Payroll Type" not in loc_df.columns and "COST CENTRE" in loc_df.columns:
             def _derive_pt(value):
                 text = str(value).strip().lower()
