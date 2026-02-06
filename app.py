@@ -715,12 +715,12 @@ else:
                 "comment": comment,
             }
 
-                st.markdown(
-                    f"**Details:** {row['summary']}\n\n"
-                    f"- Dates: {row['dates']}\n"
-                    f"- Cost Centre: {row['cost_centre']}\n"
-                )
-                st.json(exc.details)
+            st.markdown(
+                f"**Details:** {row['summary']}\n\n"
+                f"- Dates: {row['dates']}\n"
+                f"- Cost Centre: {row['cost_centre']}\n"
+            )
+            st.json(exc.details)
             st.markdown("---")
 
         apply_clicked = st.form_submit_button("Apply All Approvals")
