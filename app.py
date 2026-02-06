@@ -579,27 +579,9 @@ if auth_required and not st.session_state.logged_in:
 
 st.subheader("1. Load Mapping Data")
 if credentials_info is None:
-    st.warning("Service account credentials not detected. Add to secrets or paste below.")
-    with st.expander("Secrets debug"):
-        st.write(manual_debug)
+    st.warning("Service account credentials not detected. Add to secrets.")
 else:
     st.success("Service account credentials detected.")
-    with st.expander("Credentials debug"):
-        if isinstance(credentials_info, dict):
-            st.write({"type": "dict", "keys": list(credentials_info.keys())})
-        elif isinstance(credentials_info, str):
-            st.write({"type": "str", "length": len(credentials_info), "preview": credentials_info[:50]})
-        else:
-            st.write({"type": str(type(credentials_info))})
-
-with st.expander("Service Account JSON (if not in secrets)"):
-    json_input = st.text_area("Paste service account JSON", height=150)
-    if st.button("Use Service Account JSON"):
-        st.session_state.google_sa_json = json_input
-        if hasattr(st, "rerun"):
-            st.rerun()
-        else:
-            st.experimental_rerun()
 
 def _load_google_sheets():
     def extract_sheet_id(value: str) -> str:
@@ -1401,52 +1383,6 @@ else:
             _save_snapshot(token)
             st.rerun()
 
-    if processed is not None:
-        # Optional diagnostics (hidden by default)
-        with st.expander("Diagnostics (optional)"):
-            missing_rows = [e for e in exceptions if e.exception_type == "MISSING_PUNCH_DAY"]
-            if missing_rows:
-                diag_rows = []
-                synel_period = processed.get("synel_period")
-                if synel_period is not None:
-                    for exc in missing_rows:
-                        date_val = exc.details.get("date")
-                        emp = str(exc.employee_id)
-                        matches = synel_period[
-                            (synel_period["Emp No"].astype(str).str.strip() == emp)
-                            & (synel_period["Date"] == date_val)
-                        ]
-                        if matches.empty:
-                            diag_rows.append(
-                                {
-                                    "employee_id": emp,
-                                    "date": date_val,
-                                    "IN_1": "",
-                                    "OUT_1": "",
-                                    "IN_2": "",
-                                    "OUT_2": "",
-                                    "ABS_1": "",
-                                    "ABS_2": "",
-                                    "note": "No row found",
-                                }
-                            )
-                        else:
-                            for _, row in matches.iterrows():
-                                diag_rows.append(
-                                    {
-                                        "employee_id": emp,
-                                        "date": row.get("Date"),
-                                        "IN_1": row.get("IN_1", ""),
-                                        "OUT_1": row.get("OUT_1", ""),
-                                        "IN_2": row.get("IN_2", ""),
-                                        "OUT_2": row.get("OUT_2", ""),
-                                        "ABS_1": row.get("ABS_HALF_DAY_1", ""),
-                                        "ABS_2": row.get("ABS_HALF_DAY_2", ""),
-                                        "note": "",
-                                    }
-                                )
-                    st.caption("Missing punch rows with exact IN/OUT values.")
-                    st.dataframe(pd.DataFrame(diag_rows), use_container_width=True, hide_index=True)
 
 st.subheader("5. Audit Log")
 if st.session_state.audit_log:
