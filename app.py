@@ -602,6 +602,28 @@ open_exceptions = [e for e in exceptions if not e.is_resolved()]
 
 st.write(f"Open exceptions: {len(open_exceptions)}")
 
+absence_options = []
+absence_codes = []
+if absence_df is not None and "Short Name" in absence_df.columns:
+    temp_codes = (
+        absence_df["Short Name"]
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .tolist()
+    )
+    temp_desc = (
+        absence_df.get("Description", pd.Series([""] * len(temp_codes)))
+        .astype(str)
+        .str.strip()
+        .tolist()
+    )
+    for code, desc in zip(temp_codes, temp_desc):
+        if code:
+            absence_codes.append(code)
+            absence_options.append(f"{code} - {desc}" if desc else code)
+absence_codes = sorted(set(absence_codes))
+
 def _exception_dates(details: dict) -> str:
     if not details:
         return ""
@@ -738,6 +760,12 @@ else:
                     step=0.25,
                     key=f"ded_hours_{exc.exception_id}",
                 )
+                bucket = controls[2].selectbox(
+                    "Absence Bucket",
+                    absence_options if absence_options else ["BASIC"],
+                    key=f"ded_bucket_{exc.exception_id}",
+                )
+                extra_fields["custom_adjustment_bucket"] = bucket.split(" - ")[0]
             elif selected_action == "approve_overtime":
                 extra_fields["overtime_hours"] = controls[0].number_input(
                     "Overtime hours",
@@ -770,6 +798,40 @@ else:
                 "Comment (optional)",
                 key=f"comment_{exc.exception_id}",
             )
+
+            # Inline preview
+            emp = employee_lookup.get(str(exc.employee_id), {})
+            weekly_hours = emp.get("weekly_hours") or 0.0
+            annual_salary = emp.get("basic_pay_value") or 0.0
+            hourly_rate = 0.0
+            if emp.get("pay_basis") == "HOURLY":
+                hourly_rate = annual_salary
+            elif weekly_hours:
+                hourly_rate = annual_salary / (weekly_hours * 52.0)
+            hours_per_day = (weekly_hours / 5.0) if weekly_hours else 0.0
+
+            preview = ""
+            if selected_action == "deduct_unpaid_days":
+                d_days = float(extra_fields.get("deduction_days") or 0.0)
+                d_hours = float(extra_fields.get("deduction_hours") or 0.0)
+                total_hours = d_days * hours_per_day + d_hours
+                preview = f"Deduct {total_hours:.2f} hours (~£{total_hours * hourly_rate:.2f})"
+            elif selected_action == "custom_adjustment":
+                adj_type = extra_fields.get("custom_adjustment_type")
+                adj_amount = float(extra_fields.get("custom_adjustment_amount") or 0.0)
+                if adj_type == "money":
+                    hours_equiv = adj_amount / hourly_rate if hourly_rate else 0.0
+                    preview = f"Adjust £{adj_amount:.2f} (≈{hours_equiv:.2f} hours)"
+                else:
+                    preview = f"Adjust {adj_amount:.2f} hours (≈£{adj_amount * hourly_rate:.2f})"
+            elif selected_action == "approve_overtime":
+                ot_hours = float(extra_fields.get("overtime_hours") or 0.0)
+                preview = f"Overtime {ot_hours:.2f} hours (≈£{ot_hours * hourly_rate:.2f})"
+            elif selected_action == "approve_paid":
+                preview = "No deduction; pay full salary"
+
+            if preview:
+                st.caption(preview)
 
             pending_updates[exc.exception_id] = {
                 "action": selected_action,
