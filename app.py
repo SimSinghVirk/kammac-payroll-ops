@@ -1334,19 +1334,19 @@ else:
                     hide_index=True,
                 )
 
-            with st.expander("Daily Breakdown"):
-                breakdown = _build_daily_breakdown(
-                    str(exc.employee_id),
-                    processed,
-                    period_start,
-                    period_end,
-                    absence_codes,
-                    absence_paid_map,
-                )
-                if breakdown.empty:
-                    st.caption("No daily data available.")
-                else:
-                    st.dataframe(breakdown, use_container_width=True, hide_index=True)
+            st.markdown("**Daily Breakdown**")
+            breakdown = _build_daily_breakdown(
+                str(exc.employee_id),
+                processed,
+                period_start,
+                period_end,
+                absence_codes,
+                absence_paid_map,
+            )
+            if breakdown.empty:
+                st.caption("No daily data available.")
+            else:
+                st.dataframe(breakdown, use_container_width=True, hide_index=True)
 
     if st.button("Apply All Approvals"):
         effective_operator = operator_name.strip() if operator_name.strip() else (app_username or "unknown")
