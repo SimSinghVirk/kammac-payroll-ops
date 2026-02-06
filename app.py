@@ -1106,6 +1106,7 @@ if processed is not None:
                 "Employee Id": employee_id,
                 "Name": f"{row.get('firstname','')} {row.get('surname','')}".strip(),
                 "Cost Centre": row.get("cost_centre", ""),
+                "Location": row.get("location", ""),
                 "Pay Basis": pay_basis,
                 "Annual Salary": round(annual_salary, 2) if pay_basis == "SALARIED" else "",
                 "Base Monthly Hours": round(standard_hours, 2),
