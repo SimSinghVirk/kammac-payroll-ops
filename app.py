@@ -160,17 +160,21 @@ def _row_overtime_hours(row: pd.Series) -> float:
     return time_half if time_half > 0 else overtime
 
 
-def _sum_date_adjustments(employee_id: str) -> tuple[float, dict[str, float]]:
+def _sum_date_adjustments(employee_id: str) -> tuple[float, dict[str, float], float]:
     total = 0.0
     by_bucket: dict[str, float] = {}
+    overtime_total = 0.0
     for adj in st.session_state.get("date_adjustments", []):
         if str(adj.get("employee_id")) != str(employee_id):
             continue
         hours = float(adj.get("hours") or 0.0)
         bucket = adj.get("bucket", "BASIC")
+        pay_type = adj.get("pay_type", "regular")
         total += hours
         by_bucket[bucket] = by_bucket.get(bucket, 0.0) + hours
-    return total, by_bucket
+        if pay_type == "overtime":
+            overtime_total += hours
+    return total, by_bucket, overtime_total
 
 
 def _compute_employee_totals(
@@ -199,6 +203,7 @@ def _compute_employee_totals(
     custom_by_code_hours: dict[str, float] = {}
     custom_by_code_money: dict[str, float] = {}
     overtime_hours = 0.0
+    overtime_hours_adjusted = 0.0
 
     for exc in exceptions_by_emp.get(employee_id, []):
         if not exc.is_resolved():
@@ -214,11 +219,15 @@ def _compute_employee_totals(
             adj_type = resolution.get("custom_adjustment_type", "hours")
             adj_amount = float(resolution.get("custom_adjustment_amount") or 0.0)
             bucket = resolution.get("custom_adjustment_bucket", "BASIC")
+            pay_type = resolution.get("custom_adjustment_pay_type", "regular")
             if adj_type == "money":
                 custom_money_delta += adj_amount
                 custom_by_code_money[bucket] = custom_by_code_money.get(bucket, 0.0) + adj_amount
             else:
-                custom_hours_delta += adj_amount
+                if pay_type == "overtime":
+                    overtime_hours_adjusted += adj_amount
+                else:
+                    custom_hours_delta += adj_amount
                 custom_by_code_hours[bucket] = custom_by_code_hours.get(bucket, 0.0) + adj_amount
 
     for adj in st.session_state.manual_adjustments:
@@ -227,15 +236,20 @@ def _compute_employee_totals(
         adj_type = adj.get("type", "hours")
         adj_amount = float(adj.get("amount") or 0.0)
         bucket = adj.get("bucket", "BASIC")
+        pay_type = adj.get("pay_type", "regular")
         if adj_type == "money":
             custom_money_delta += adj_amount
             custom_by_code_money[bucket] = custom_by_code_money.get(bucket, 0.0) + adj_amount
         else:
-            custom_hours_delta += adj_amount
+            if pay_type == "overtime":
+                overtime_hours_adjusted += adj_amount
+            else:
+                custom_hours_delta += adj_amount
             custom_by_code_hours[bucket] = custom_by_code_hours.get(bucket, 0.0) + adj_amount
 
-    date_hours_delta, date_hours_by_bucket = _sum_date_adjustments(employee_id)
+    date_hours_delta, date_hours_by_bucket, date_overtime_hours = _sum_date_adjustments(employee_id)
     custom_hours_delta += date_hours_delta
+    overtime_hours_adjusted += date_overtime_hours
     for bucket, hours in date_hours_by_bucket.items():
         custom_by_code_hours[bucket] = custom_by_code_hours.get(bucket, 0.0) + hours
 
@@ -243,6 +257,7 @@ def _compute_employee_totals(
         deduction_days += float(extra.get("deduction_days") or 0.0)
         deduction_hours += float(extra.get("deduction_hours") or 0.0)
         overtime_hours += float(extra.get("overtime_hours") or 0.0)
+        overtime_hours_adjusted += float(extra.get("overtime_hours_adjusted") or 0.0)
         custom_hours_delta += float(extra.get("custom_hours_delta") or 0.0)
         custom_money_delta += float(extra.get("custom_money_delta") or 0.0)
         for bucket, hours in (extra.get("custom_by_code_hours") or {}).items():
@@ -264,7 +279,7 @@ def _compute_employee_totals(
 
     if pay_basis == "SALARIED":
         base_monthly_pay = annual_salary / 12.0
-        overtime_money = overtime_hours * hourly_rate
+        overtime_money = (overtime_hours + overtime_hours_adjusted) * hourly_rate
         paid_abs_hours = 0.0
         unpaid_abs_hours = 0.0
     else:
@@ -275,7 +290,7 @@ def _compute_employee_totals(
             hours for code, hours in abs_hours_map.items() if not absence_paid_map.get(code, False)
         )
         base_monthly_pay = (regular_hours + paid_abs_hours) * hourly_rate
-        overtime_money = synel_overtime_hours * hourly_rate * 1.5
+        overtime_money = (synel_overtime_hours + overtime_hours_adjusted) * hourly_rate * 1.5
 
     deduction_money = (deduction_days * hours_per_day + deduction_hours) * hourly_rate
     custom_money = (custom_hours_delta * hourly_rate) + custom_money_delta
@@ -914,6 +929,10 @@ if processed is not None:
                 absence_options.append(f"{code} - {desc}" if desc else code)
                 absence_paid_map[code] = paid_flag == "yes"
     absence_codes = sorted(set(absence_codes))
+    if "OTHER" not in absence_codes:
+        absence_codes.append("OTHER")
+    if "OTHER - Pay" not in absence_options:
+        absence_options.append("OTHER - Pay")
     st.session_state.absence_options = absence_options
     st.session_state.absence_codes = absence_codes
     st.session_state.absence_paid_map = absence_paid_map
@@ -952,6 +971,7 @@ if processed is not None:
         adj_type = st.selectbox("Adjustment Type", ["hours", "money"])
         adj_amount = st.number_input("Adjustment Amount (+/-)", value=0.0, step=0.25)
         adj_bucket = st.selectbox("Absence Bucket", absence_options if absence_options else ["BASIC"])
+        adj_pay_type = st.selectbox("Pay Type", ["regular", "overtime"])
         adj_comment = st.text_input("Comment (optional)")
         emp_row = None
         if adj_employee:
@@ -971,7 +991,10 @@ if processed is not None:
                 extra["custom_money_delta"] = adj_amount
                 extra["custom_by_code_money"] = {bucket: adj_amount}
             else:
-                extra["custom_hours_delta"] = adj_amount
+                if adj_pay_type == "overtime":
+                    extra["overtime_hours_adjusted"] = adj_amount
+                else:
+                    extra["custom_hours_delta"] = adj_amount
                 extra["custom_by_code_hours"] = {bucket: adj_amount}
             after_totals = _compute_employee_totals(
                 emp_row,
@@ -980,6 +1003,9 @@ if processed is not None:
                 processed,
                 extra=extra,
             )
+            if adj_type == "hours":
+                pay_label = "overtime" if adj_pay_type == "overtime" else "regular"
+                st.caption(f"Draft adjustment is {pay_label} hours.")
             st.caption(
                 f"Pay before adjustment: £{base_totals['total_money']:.2f} → "
                 f"after draft: £{after_totals['total_money']:.2f}"
@@ -992,6 +1018,7 @@ if processed is not None:
                     "type": adj_type,
                     "amount": adj_amount,
                     "bucket": adj_bucket.split(" - ")[0],
+                    "pay_type": adj_pay_type,
                     "comment": adj_comment,
                 }
             )
@@ -1009,6 +1036,7 @@ if processed is not None:
             "Absence Bucket (Date Adjustment)",
             absence_options if absence_options else ["BASIC"],
         )
+        date_adj_pay_type = st.selectbox("Pay Type (Date Adjustment)", ["regular", "overtime"])
         date_adj_comment = st.text_input("Comment (optional, Date Adjustment)")
         add_date_adj = st.form_submit_button("Add Date Adjustment")
         if add_date_adj:
@@ -1018,6 +1046,7 @@ if processed is not None:
                     "date": date_adj_date.isoformat() if date_adj_date else "",
                     "hours": date_adj_hours,
                     "bucket": date_adj_bucket.split(" - ")[0],
+                    "pay_type": date_adj_pay_type,
                     "comment": date_adj_comment,
                 }
             )
@@ -1196,6 +1225,9 @@ else:
                 adj_type = st.selectbox(
                     "Adjustment Type", ["hours", "money"], key=f"adj_type_{exc.exception_id}"
                 )
+                adj_pay_type = st.selectbox(
+                    "Pay Type", ["regular", "overtime"], key=f"adj_pay_type_{exc.exception_id}"
+                )
                 adj_amount = st.number_input(
                     "Adjustment Amount (+/-)", value=0.0, step=0.25, key=f"adj_amount_{exc.exception_id}"
                 )
@@ -1206,6 +1238,7 @@ else:
                 )
                 extra_fields["custom_adjustment_type"] = adj_type
                 extra_fields["custom_adjustment_amount"] = adj_amount
+                extra_fields["custom_adjustment_pay_type"] = adj_pay_type
                 extra_fields["custom_adjustment_bucket"] = bucket.split(" - ")[0]
 
             comment = st.text_input("Comment (optional)", key=f"comment_{exc.exception_id}")
@@ -1229,11 +1262,13 @@ else:
             elif selected_action == "custom_adjustment":
                 adj_type = extra_fields.get("custom_adjustment_type")
                 adj_amount = float(extra_fields.get("custom_adjustment_amount") or 0.0)
+                adj_pay_type = extra_fields.get("custom_adjustment_pay_type", "regular")
                 if adj_type == "money":
                     hours_equiv = adj_amount / hourly_rate if hourly_rate else 0.0
                     preview = f"Adjust £{adj_amount:.2f} (≈{hours_equiv:.2f} hours)"
                 else:
-                    preview = f"Adjust {adj_amount:.2f} hours (≈£{adj_amount * hourly_rate:.2f})"
+                    pay_label = "overtime" if adj_pay_type == "overtime" else "regular"
+                    preview = f"Adjust {adj_amount:.2f} hours ({pay_label}, ≈£{adj_amount * hourly_rate:.2f})"
             elif selected_action == "approve_overtime":
                 ot_hours = float(extra_fields.get("overtime_hours") or 0.0)
                 preview = f"Overtime {ot_hours:.2f} hours (≈£{ot_hours * hourly_rate:.2f})"
@@ -1259,11 +1294,15 @@ else:
                     adj_type = extra_fields.get("custom_adjustment_type", "hours")
                     adj_amount = float(extra_fields.get("custom_adjustment_amount") or 0.0)
                     bucket = extra_fields.get("custom_adjustment_bucket", "BASIC")
+                    pay_type = extra_fields.get("custom_adjustment_pay_type", "regular")
                     if adj_type == "money":
                         extra["custom_money_delta"] = adj_amount
                         extra["custom_by_code_money"] = {bucket: adj_amount}
                     else:
-                        extra["custom_hours_delta"] = adj_amount
+                        if pay_type == "overtime":
+                            extra["overtime_hours_adjusted"] = adj_amount
+                        else:
+                            extra["custom_hours_delta"] = adj_amount
                         extra["custom_by_code_hours"] = {bucket: adj_amount}
                 after_totals = _compute_employee_totals(
                     emp,
@@ -1299,6 +1338,11 @@ else:
                     absence_options if absence_options else ["BASIC"],
                     key=f"exc_bucket_{exc.exception_id}",
                 )
+                exc_pay_type = st.selectbox(
+                    "Pay Type (Date Adjustment)",
+                    ["regular", "overtime"],
+                    key=f"exc_pay_type_{exc.exception_id}",
+                )
                 exc_comment = st.text_input(
                     "Comment (optional, Date Adjustment)",
                     key=f"exc_comment_{exc.exception_id}",
@@ -1311,6 +1355,7 @@ else:
                             "date": exc_date.isoformat() if exc_date else "",
                             "hours": exc_hours,
                             "bucket": exc_bucket.split(" - ")[0],
+                            "pay_type": exc_pay_type,
                             "comment": exc_comment,
                             "exception_id": exc.exception_id,
                         }
@@ -1415,6 +1460,7 @@ if processed is not None:
         custom_by_code_hours: dict[str, float] = {}
         custom_by_code_money: dict[str, float] = {}
         overtime_hours = 0.0
+        overtime_hours_adjusted = 0.0
         for exc in exceptions_by_emp.get(employee_id, []):
             if not exc.is_resolved():
                 continue
@@ -1429,10 +1475,14 @@ if processed is not None:
                 adj_type = resolution.get("custom_adjustment_type", "hours")
                 adj_amount = float(resolution.get("custom_adjustment_amount") or 0.0)
                 bucket = resolution.get("custom_adjustment_bucket", "BASIC")
+                pay_type = resolution.get("custom_adjustment_pay_type", "regular")
                 if adj_type == "money":
                     custom_money_delta += adj_amount
                 else:
-                    custom_hours_delta += adj_amount
+                    if pay_type == "overtime":
+                        overtime_hours_adjusted += adj_amount
+                    else:
+                        custom_hours_delta += adj_amount
                 custom_by_code_hours[bucket] = custom_by_code_hours.get(bucket, 0.0) + (adj_amount if adj_type == "hours" else 0.0)
                 custom_by_code_money[bucket] = custom_by_code_money.get(bucket, 0.0) + (adj_amount if adj_type == "money" else 0.0)
 
@@ -1443,10 +1493,14 @@ if processed is not None:
             adj_type = adj.get("type", "hours")
             adj_amount = float(adj.get("amount") or 0.0)
             bucket = adj.get("bucket", "BASIC")
+            pay_type = adj.get("pay_type", "regular")
             if adj_type == "money":
                 custom_money_delta += adj_amount
             else:
-                custom_hours_delta += adj_amount
+                if pay_type == "overtime":
+                    overtime_hours_adjusted += adj_amount
+                else:
+                    custom_hours_delta += adj_amount
             custom_by_code_hours[bucket] = custom_by_code_hours.get(bucket, 0.0) + (adj_amount if adj_type == "hours" else 0.0)
             custom_by_code_money[bucket] = custom_by_code_money.get(bucket, 0.0) + (adj_amount if adj_type == "money" else 0.0)
 
@@ -1456,7 +1510,11 @@ if processed is not None:
                 continue
             adj_amount = float(adj.get("hours") or 0.0)
             bucket = adj.get("bucket", "BASIC")
-            custom_hours_delta += adj_amount
+            pay_type = adj.get("pay_type", "regular")
+            if pay_type == "overtime":
+                overtime_hours_adjusted += adj_amount
+            else:
+                custom_hours_delta += adj_amount
             custom_by_code_hours[bucket] = custom_by_code_hours.get(bucket, 0.0) + adj_amount
 
         hours_per_day = (weekly_hours / 5.0) if weekly_hours else 8.0
@@ -1485,7 +1543,7 @@ if processed is not None:
 
         if pay_basis == "SALARIED":
             base_monthly_pay = annual_salary / 12.0
-            overtime_money = overtime_hours * hourly_rate
+            overtime_money = (overtime_hours + overtime_hours_adjusted) * hourly_rate
         else:
             # Hourly: pay worked hours + paid absence hours (from BASIC PAY assigned to code)
             paid_abs_hours = sum(
@@ -1495,7 +1553,7 @@ if processed is not None:
                 hours for code, hours in abs_hours_map.items() if not absence_paid_map.get(code, False)
             )
             base_monthly_pay = (regular_hours + paid_abs_hours) * hourly_rate
-            overtime_money = synel_overtime_hours * hourly_rate * 1.5
+            overtime_money = (synel_overtime_hours + overtime_hours_adjusted) * hourly_rate * 1.5
 
         deduction_money = (deduction_days * hours_per_day + deduction_hours) * hourly_rate
         custom_money = (custom_hours_delta * hourly_rate) + custom_money_delta
