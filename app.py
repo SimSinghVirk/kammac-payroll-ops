@@ -159,6 +159,7 @@ with st.sidebar:
     ignore_non_numeric_emp_no = st.checkbox("Ignore non-numeric Emp No rows (temporary)")
     ignore_unmapped_zero_activity = st.checkbox("Ignore unmapped with zero activity (temporary)")
     employee_id_length = st.number_input("Employee ID length (pad)", min_value=0, max_value=12, value=5, step=1)
+    excluded_locations = st.text_input("Exclude Locations (comma-separated)")
 
 
 mapping_df = None
@@ -497,6 +498,9 @@ processed = None
 if can_process:
     if st.button("Run Processing"):
         try:
+            exclude_locations_list = [
+                loc.strip() for loc in excluded_locations.split(",") if loc.strip()
+            ]
             processed = process_run(
                 mapping_df,
                 absence_df,
@@ -511,6 +515,7 @@ if can_process:
                     ignore_unmapped_zero_activity=ignore_unmapped_zero_activity,
                     employee_id_length=int(employee_id_length) if employee_id_length else None,
                 ),
+                exclude_locations=exclude_locations_list,
             )
             st.session_state.processed = processed
             st.session_state.exceptions = processed["exceptions"]

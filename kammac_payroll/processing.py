@@ -111,6 +111,7 @@ def process_run(
     pay_elements_df: pd.DataFrame,
     synel_df: pd.DataFrame,
     config: ProcessingConfig,
+    exclude_locations: list[str] | None = None,
 ) -> dict[str, Any]:
     exceptions: list[ExceptionRecord] = []
     blocking: list[str] = []
@@ -166,6 +167,10 @@ def process_run(
         blocking.append("Unable to derive payroll type from COST CENTRE for some rows.")
 
     mapping_filtered = mapping_df[mapping_df["Payroll Type"] == config.payroll_type].copy()
+    if exclude_locations:
+        mapping_filtered = mapping_filtered[
+            ~mapping_filtered["Location"].astype(str).str.strip().isin(exclude_locations)
+        ]
 
     # Join Synel rows to mapping
     joined = synel_period.merge(
