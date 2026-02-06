@@ -536,7 +536,47 @@ if processed is not None:
     st.dataframe(processed["employee_df"], use_container_width=True)
 
 
-st.subheader("4. Exceptions")
+st.subheader("4. Manual Adjustments (No Exception)")
+if processed is not None:
+    with st.form("manual_adjustments_form", clear_on_submit=True):
+        employee_rows = processed["employee_df"].copy()
+        employee_rows["employee_id"] = employee_rows["employee_id"].astype(str)
+        employee_rows["label"] = (
+            employee_rows["employee_id"].astype(str)
+            + " - "
+            + employee_rows["firstname"].fillna("").astype(str)
+            + " "
+            + employee_rows["surname"].fillna("").astype(str)
+        ).str.strip()
+        employee_labels = employee_rows["label"].tolist()
+        label_to_id = dict(zip(employee_labels, employee_rows["employee_id"].tolist()))
+        adj_employee_label = st.selectbox("Employee", employee_labels)
+        adj_employee = label_to_id.get(adj_employee_label, "")
+        adj_type = st.selectbox("Adjustment Type", ["hours", "money"])
+        adj_amount = st.number_input("Adjustment Amount (+/-)", value=0.0, step=0.25)
+        adj_bucket = st.selectbox("Absence Bucket", absence_options if absence_options else ["BASIC"])
+        adj_comment = st.text_input("Comment (optional)")
+        add_adj = st.form_submit_button("Add Adjustment")
+        if add_adj:
+            st.session_state.manual_adjustments.append(
+                {
+                    "employee_id": adj_employee,
+                    "type": adj_type,
+                    "amount": adj_amount,
+                    "bucket": adj_bucket.split(" - ")[0],
+                    "comment": adj_comment,
+                }
+            )
+            _save_snapshot(token)
+            st.success("Adjustment added")
+
+    if st.session_state.manual_adjustments:
+        st.dataframe(pd.DataFrame(st.session_state.manual_adjustments), use_container_width=True, hide_index=True)
+else:
+    st.caption("Run processing to enable manual adjustments.")
+
+
+st.subheader("5. Exceptions")
 exceptions: list[ExceptionRecord] = st.session_state.exceptions
 open_exceptions = [e for e in exceptions if not e.is_resolved()]
 
@@ -606,7 +646,7 @@ def _allowed_actions(exc_type: str) -> list[str]:
 if not exceptions:
     st.caption("No exceptions.")
 else:
-    st.caption("Use the table to review. Expand a row to edit. Click Apply All Approvals to save.")
+    st.caption("Use the table to review. Select an action per row and apply all approvals.")
     show_open_only = st.checkbox("Show open exceptions only", value=True)
     per_page = st.selectbox("Exceptions per page", [10, 20, 30, 50], index=0)
 
@@ -621,13 +661,14 @@ else:
         st.caption("No exceptions in this view.")
 
     with st.form("exception_approvals_form", clear_on_submit=False):
-        header = st.columns([1.2, 2.4, 2.2, 2.2, 3.2, 1.2])
+        header = st.columns([1.2, 2.4, 2.2, 2.2, 3.2, 1.2, 2.2])
         header[0].markdown("**Employee**")
         header[1].markdown("**Name**")
         header[2].markdown("**Cost Centre**")
         header[3].markdown("**Type**")
         header[4].markdown("**Dates / Summary**")
         header[5].markdown("**Status**")
+        header[6].markdown("**Action**")
 
         pending_updates: dict[str, dict] = {}
 
@@ -645,7 +686,7 @@ else:
                     "summary": _exception_summary(exc.details),
                 }
 
-            info = st.columns([1.2, 2.4, 2.2, 2.2, 3.2, 1.2])
+            info = st.columns([1.2, 2.4, 2.2, 2.2, 3.2, 1.2, 2.2])
             info[0].write(row["employee_id"])
             info[1].write(_truncate(row["name"], 28))
             info[2].write(_truncate(row["cost_centre"], 24))
@@ -654,48 +695,49 @@ else:
             info[4].write(_truncate(summary_text, 60))
             info[5].write(row["status"])
 
-        with st.expander(f"Edit {row['employee_id']} | {row['exception_type']}", expanded=False):
             actions = _allowed_actions(exc.exception_type)
-            selected_action = st.selectbox(
+            selected_action = info[6].selectbox(
                 "Action",
                 actions,
                 key=f"action_{exc.exception_id}",
+                label_visibility="collapsed",
             )
 
             extra_fields: dict[str, float] = {}
+            controls = st.columns([2.4, 2.4, 2.4, 2.4])
             if selected_action == "deduct_unpaid_days":
-                extra_fields["deduction_days"] = st.number_input(
+                extra_fields["deduction_days"] = controls[0].number_input(
                     "Deduction days",
                     min_value=0.0,
                     step=0.5,
                     key=f"ded_days_{exc.exception_id}",
                 )
-                extra_fields["deduction_hours"] = st.number_input(
+                extra_fields["deduction_hours"] = controls[1].number_input(
                     "Deduction hours",
                     min_value=0.0,
                     step=0.25,
                     key=f"ded_hours_{exc.exception_id}",
                 )
             elif selected_action == "approve_overtime":
-                extra_fields["overtime_hours"] = st.number_input(
+                extra_fields["overtime_hours"] = controls[0].number_input(
                     "Overtime hours",
                     min_value=0.0,
                     step=0.5,
                     key=f"ot_hours_{exc.exception_id}",
                 )
             elif selected_action == "custom_adjustment":
-                adj_type = st.selectbox(
+                adj_type = controls[0].selectbox(
                     "Adjustment Type",
                     ["hours", "money"],
                     key=f"adj_type_{exc.exception_id}",
                 )
-                adj_amount = st.number_input(
+                adj_amount = controls[1].number_input(
                     "Adjustment Amount (+/-)",
                     value=0.0,
                     step=0.25,
                     key=f"adj_amount_{exc.exception_id}",
                 )
-                bucket = st.selectbox(
+                bucket = controls[2].selectbox(
                     "Absence Bucket",
                     absence_options if absence_options else ["BASIC"],
                     key=f"adj_bucket_{exc.exception_id}",
@@ -704,7 +746,7 @@ else:
                 extra_fields["custom_adjustment_amount"] = adj_amount
                 extra_fields["custom_adjustment_bucket"] = bucket.split(" - ")[0]
 
-            comment = st.text_input(
+            comment = controls[3].text_input(
                 "Comment (optional)",
                 key=f"comment_{exc.exception_id}",
             )
@@ -715,12 +757,6 @@ else:
                 "comment": comment,
             }
 
-            st.markdown(
-                f"**Details:** {row['summary']}\n\n"
-                f"- Dates: {row['dates']}\n"
-                f"- Cost Centre: {row['cost_centre']}\n"
-            )
-            st.json(exc.details)
             st.markdown("---")
 
         apply_clicked = st.form_submit_button("Apply All Approvals")
@@ -822,55 +858,6 @@ if processed is not None:
     exceptions_by_emp: dict[str, list[ExceptionRecord]] = {}
     for exc in exceptions:
         exceptions_by_emp.setdefault(str(exc.employee_id), []).append(exc)
-
-    # Build a stable list of absence codes from mapping
-    absence_codes = []
-    absence_options = []
-    if absence_df is not None and "Short Name" in absence_df.columns:
-        temp_codes = (
-            absence_df["Short Name"]
-            .astype(str)
-            .str.strip()
-            .str.upper()
-            .tolist()
-        )
-        temp_desc = (
-            absence_df.get("Description", pd.Series([""] * len(temp_codes)))
-            .astype(str)
-            .str.strip()
-            .tolist()
-        )
-        for code, desc in zip(temp_codes, temp_desc):
-            if code:
-                absence_codes.append(code)
-                absence_options.append(f"{code} - {desc}" if desc else code)
-    absence_codes = sorted(set(absence_codes))
-
-    # Manual adjustments for non-exception employees
-    st.subheader("6.1 Manual Adjustments (No Exception)")
-    with st.form("manual_adjustments_form", clear_on_submit=True):
-        employee_ids = sorted(processed["employee_df"]["employee_id"].astype(str).unique().tolist())
-        adj_employee = st.selectbox("Employee", employee_ids)
-        adj_type = st.selectbox("Adjustment Type", ["hours", "money"])
-        adj_amount = st.number_input("Adjustment Amount (+/-)", value=0.0, step=0.25)
-        adj_bucket = st.selectbox("Absence Bucket", absence_options if absence_options else ["BASIC"])
-        adj_comment = st.text_input("Comment (optional)")
-        add_adj = st.form_submit_button("Add Adjustment")
-        if add_adj:
-            st.session_state.manual_adjustments.append(
-                {
-                    "employee_id": adj_employee,
-                    "type": adj_type,
-                    "amount": adj_amount,
-                    "bucket": adj_bucket.split(" - ")[0],
-                    "comment": adj_comment,
-                }
-            )
-            _save_snapshot(token)
-            st.success("Adjustment added")
-
-    if st.session_state.manual_adjustments:
-        st.dataframe(pd.DataFrame(st.session_state.manual_adjustments), use_container_width=True, hide_index=True)
 
     review_rows = []
     for _, row in processed["employee_df"].iterrows():
