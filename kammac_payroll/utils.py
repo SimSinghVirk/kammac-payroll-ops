@@ -73,3 +73,19 @@ def safe_str(value: Any) -> str:
     if text.lower() in {"nan", "none", "null"}:
         return ""
     return text
+
+
+def parse_time_to_hours(value: Any) -> float | None:
+    text = safe_str(value)
+    if not text:
+        return None
+    parts = text.split(":")
+    if len(parts) < 2:
+        return None
+    try:
+        hours = int(parts[0])
+        minutes = int(parts[1])
+        seconds = int(parts[2]) if len(parts) > 2 else 0
+    except ValueError:
+        return None
+    return hours + minutes / 60.0 + seconds / 3600.0

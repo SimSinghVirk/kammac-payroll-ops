@@ -9,7 +9,7 @@ import pandas as pd
 
 from .constants import SYNEL_ABSENCE_COLS, SYNEL_PUNCH_COLS
 from .exceptions import ExceptionRecord
-from .utils import coerce_numeric, normalize_employee_id, safe_str
+from .utils import coerce_numeric, normalize_employee_id, safe_str, parse_time_to_hours
 
 
 @dataclass
@@ -95,6 +95,20 @@ def _row_missing_punch(row: pd.Series) -> bool:
         return (a != "" and b == "") or (a == "" and b != "")
 
     return missing_pair(in1, out1) or missing_pair(in2, out2)
+
+
+def _row_worked_hours_from_punches(row: pd.Series) -> float:
+    in1 = parse_time_to_hours(row.get("IN_1"))
+    out1 = parse_time_to_hours(row.get("OUT_1"))
+    in2 = parse_time_to_hours(row.get("IN_2"))
+    out2 = parse_time_to_hours(row.get("OUT_2"))
+
+    total = 0.0
+    if in1 is not None and out1 is not None and out1 >= in1:
+        total += out1 - in1
+    if in2 is not None and out2 is not None and out2 >= in2:
+        total += out2 - in2
+    return total
 
 
 def _pay_element_columns(df: pd.DataFrame) -> list[str]:
@@ -340,8 +354,13 @@ def process_run(
         for _, row in group.iterrows():
             days = _extract_absence_days(row, has_second_abs)
             if not days:
-                # If no absence code, treat BASIC PAY hours as worked hours (hourly)
-                worked_hours += coerce_numeric(row.get("_row_basic_hours")) or 0.0
+                # If no absence code, treat BASIC PAY hours as worked hours (hourly).
+                basic_hours = coerce_numeric(row.get("_row_basic_hours")) or 0.0
+                if basic_hours > 0:
+                    worked_hours += basic_hours
+                else:
+                    # fall back to punches if basic hours not provided
+                    worked_hours += _row_worked_hours_from_punches(row)
                 continue
             for code, day_count in days.items():
                 absence_days[code] = absence_days.get(code, 0.0) + day_count
