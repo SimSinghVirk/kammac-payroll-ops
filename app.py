@@ -707,84 +707,99 @@ else:
                 }
             )
     if table_rows:
-        st.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True)
+        table_df = pd.DataFrame(table_rows)
+        def _status_color(val: str) -> str:
+            if str(val).upper() == "OPEN":
+                return "color: #ff4d4f; font-weight: 600;"
+            if str(val).upper() == "APPROVED":
+                return "color: #52c41a; font-weight: 600;"
+            return ""
+        styled = table_df.style.applymap(_status_color, subset=["Status"])
+        st.dataframe(styled, use_container_width=True, hide_index=True)
 
-    # Editor dropdown
-    labels = []
-    id_map = {}
+    st.subheader("Exception Editors")
     for exc in exceptions_view:
         row = exception_row_by_id.get(exc.exception_id)
-        label = f"{row['employee_id']} - {row['name']} - {row['exception_type']} ({row['status']})"
-        labels.append(label)
-        id_map[label] = exc.exception_id
+        label = f"{row['employee_id']} - {row['name']} - {row['exception_type']}"
+        with st.expander(label, expanded=False):
+            actions = _allowed_actions(exc.exception_type)
+            selected_action = st.selectbox("Action", actions, key=f"action_{exc.exception_id}")
 
-    selected_label = st.selectbox("Select exception to edit", labels)
-    selected_id = id_map.get(selected_label)
-    selected_exc = next((e for e in exceptions_view if e.exception_id == selected_id), None)
+            extra_fields: dict[str, float] = {}
+            if selected_action == "deduct_unpaid_days":
+                extra_fields["deduction_days"] = st.number_input(
+                    "Deduction days", min_value=0.0, step=0.5, key=f"ded_days_{exc.exception_id}"
+                )
+                extra_fields["deduction_hours"] = st.number_input(
+                    "Deduction hours", min_value=0.0, step=0.25, key=f"ded_hours_{exc.exception_id}"
+                )
+                bucket = st.selectbox(
+                    "Absence Bucket",
+                    absence_options if absence_options else ["BASIC"],
+                    key=f"ded_bucket_{exc.exception_id}",
+                )
+                extra_fields["custom_adjustment_bucket"] = bucket.split(" - ")[0]
+            elif selected_action == "approve_overtime":
+                extra_fields["overtime_hours"] = st.number_input(
+                    "Overtime hours", min_value=0.0, step=0.5, key=f"ot_hours_{exc.exception_id}"
+                )
+            elif selected_action == "custom_adjustment":
+                adj_type = st.selectbox(
+                    "Adjustment Type", ["hours", "money"], key=f"adj_type_{exc.exception_id}"
+                )
+                adj_amount = st.number_input(
+                    "Adjustment Amount (+/-)", value=0.0, step=0.25, key=f"adj_amount_{exc.exception_id}"
+                )
+                bucket = st.selectbox(
+                    "Absence Bucket",
+                    absence_options if absence_options else ["BASIC"],
+                    key=f"adj_bucket_{exc.exception_id}",
+                )
+                extra_fields["custom_adjustment_type"] = adj_type
+                extra_fields["custom_adjustment_amount"] = adj_amount
+                extra_fields["custom_adjustment_bucket"] = bucket.split(" - ")[0]
 
-    if selected_exc:
-        row = exception_row_by_id.get(selected_exc.exception_id)
-        actions = _allowed_actions(selected_exc.exception_type)
-        selected_action = st.selectbox("Action", actions)
+            comment = st.text_input("Comment (optional)", key=f"comment_{exc.exception_id}")
 
-        extra_fields: dict[str, float] = {}
-        if selected_action == "deduct_unpaid_days":
-            extra_fields["deduction_days"] = st.number_input("Deduction days", min_value=0.0, step=0.5)
-            extra_fields["deduction_hours"] = st.number_input("Deduction hours", min_value=0.0, step=0.25)
-            bucket = st.selectbox("Absence Bucket", absence_options if absence_options else ["BASIC"])
-            extra_fields["custom_adjustment_bucket"] = bucket.split(" - ")[0]
-        elif selected_action == "approve_overtime":
-            extra_fields["overtime_hours"] = st.number_input("Overtime hours", min_value=0.0, step=0.5)
-        elif selected_action == "custom_adjustment":
-            adj_type = st.selectbox("Adjustment Type", ["hours", "money"])
-            adj_amount = st.number_input("Adjustment Amount (+/-)", value=0.0, step=0.25)
-            bucket = st.selectbox("Absence Bucket", absence_options if absence_options else ["BASIC"])
-            extra_fields["custom_adjustment_type"] = adj_type
-            extra_fields["custom_adjustment_amount"] = adj_amount
-            extra_fields["custom_adjustment_bucket"] = bucket.split(" - ")[0]
+            emp = employee_lookup.get(str(exc.employee_id), {})
+            weekly_hours = emp.get("weekly_hours") or 0.0
+            annual_salary = emp.get("basic_pay_value") or 0.0
+            hourly_rate = 0.0
+            if emp.get("pay_basis") == "HOURLY":
+                hourly_rate = annual_salary
+            elif weekly_hours:
+                hourly_rate = annual_salary / (weekly_hours * 52.0)
+            hours_per_day = (weekly_hours / 5.0) if weekly_hours else 0.0
 
-        comment = st.text_input("Comment (optional)")
+            preview = ""
+            if selected_action == "deduct_unpaid_days":
+                d_days = float(extra_fields.get("deduction_days") or 0.0)
+                d_hours = float(extra_fields.get("deduction_hours") or 0.0)
+                total_hours = d_days * hours_per_day + d_hours
+                preview = f"Deduct {total_hours:.2f} hours (~£{total_hours * hourly_rate:.2f})"
+            elif selected_action == "custom_adjustment":
+                adj_type = extra_fields.get("custom_adjustment_type")
+                adj_amount = float(extra_fields.get("custom_adjustment_amount") or 0.0)
+                if adj_type == "money":
+                    hours_equiv = adj_amount / hourly_rate if hourly_rate else 0.0
+                    preview = f"Adjust £{adj_amount:.2f} (≈{hours_equiv:.2f} hours)"
+                else:
+                    preview = f"Adjust {adj_amount:.2f} hours (≈£{adj_amount * hourly_rate:.2f})"
+            elif selected_action == "approve_overtime":
+                ot_hours = float(extra_fields.get("overtime_hours") or 0.0)
+                preview = f"Overtime {ot_hours:.2f} hours (≈£{ot_hours * hourly_rate:.2f})"
+            elif selected_action == "approve_paid":
+                preview = "No deduction; pay full salary"
+            if preview:
+                st.caption(preview)
 
-        # Preview
-        emp = employee_lookup.get(str(selected_exc.employee_id), {})
-        weekly_hours = emp.get("weekly_hours") or 0.0
-        annual_salary = emp.get("basic_pay_value") or 0.0
-        hourly_rate = 0.0
-        if emp.get("pay_basis") == "HOURLY":
-            hourly_rate = annual_salary
-        elif weekly_hours:
-            hourly_rate = annual_salary / (weekly_hours * 52.0)
-        hours_per_day = (weekly_hours / 5.0) if weekly_hours else 0.0
-
-        preview = ""
-        if selected_action == "deduct_unpaid_days":
-            d_days = float(extra_fields.get("deduction_days") or 0.0)
-            d_hours = float(extra_fields.get("deduction_hours") or 0.0)
-            total_hours = d_days * hours_per_day + d_hours
-            preview = f"Deduct {total_hours:.2f} hours (~£{total_hours * hourly_rate:.2f})"
-        elif selected_action == "custom_adjustment":
-            adj_type = extra_fields.get("custom_adjustment_type")
-            adj_amount = float(extra_fields.get("custom_adjustment_amount") or 0.0)
-            if adj_type == "money":
-                hours_equiv = adj_amount / hourly_rate if hourly_rate else 0.0
-                preview = f"Adjust £{adj_amount:.2f} (≈{hours_equiv:.2f} hours)"
-            else:
-                preview = f"Adjust {adj_amount:.2f} hours (≈£{adj_amount * hourly_rate:.2f})"
-        elif selected_action == "approve_overtime":
-            ot_hours = float(extra_fields.get("overtime_hours") or 0.0)
-            preview = f"Overtime {ot_hours:.2f} hours (≈£{ot_hours * hourly_rate:.2f})"
-        elif selected_action == "approve_paid":
-            preview = "No deduction; pay full salary"
-        if preview:
-            st.caption(preview)
-
-        if st.button("Save Draft Adjustment"):
-            st.session_state.pending_resolutions[selected_exc.exception_id] = {
-                "action": selected_action,
-                "details": extra_fields,
-                "comment": comment,
-            }
-            st.success("Draft saved")
+            if st.button("Save Draft Adjustment", key=f"save_{exc.exception_id}"):
+                st.session_state.pending_resolutions[exc.exception_id] = {
+                    "action": selected_action,
+                    "details": extra_fields,
+                    "comment": comment,
+                }
+                st.success("Draft saved")
 
     if st.button("Apply All Approvals"):
         effective_operator = operator_name.strip() if operator_name.strip() else (app_username or "unknown")
