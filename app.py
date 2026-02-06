@@ -1034,10 +1034,12 @@ if processed is not None:
         # Hourly vs salaried pay rules
         synel_overtime_hours = row.get("overtime_hours_synel") or 0.0
         actual_hours = row.get("actual_hours") or 0.0
-        regular_hours = max((actual_hours or 0.0) - synel_overtime_hours, 0.0)
+        worked_hours = row.get("worked_hours") or 0.0
+        regular_hours = max((worked_hours or 0.0), 0.0)
 
         # Paid/unpaid absence impact for hourly
         abs_map = row.get("absence_days_by_code") or {}
+        abs_hours_map = row.get("absence_hours_by_code") or {}
         paid_abs_days = 0.0
         unpaid_abs_days = 0.0
         for code, days in abs_map.items():
@@ -1052,7 +1054,14 @@ if processed is not None:
             base_monthly_pay = annual_salary / 12.0
             overtime_money = overtime_hours * hourly_rate
         else:
-            base_monthly_pay = regular_hours * hourly_rate
+            # Hourly: pay worked hours + paid absence hours (from BASIC PAY assigned to code)
+            paid_abs_hours = sum(
+                hours for code, hours in abs_hours_map.items() if absence_paid_map.get(code, False)
+            )
+            unpaid_abs_hours = sum(
+                hours for code, hours in abs_hours_map.items() if not absence_paid_map.get(code, False)
+            )
+            base_monthly_pay = (regular_hours + paid_abs_hours) * hourly_rate
             overtime_money = synel_overtime_hours * hourly_rate * 1.5
 
         deduction_money = (deduction_days * hours_per_day + deduction_hours) * hourly_rate
@@ -1116,7 +1125,9 @@ if processed is not None:
                 row_out[f"Absence {code} Pay"] = round(days * daily_rate, 2)
             else:
                 paid_flag = absence_paid_map.get(code, False)
-                row_out[f"Absence {code} Pay"] = round(days * hours_per_day * hourly_rate, 2) if paid_flag else 0.0
+                hours = abs_hours_map.get(code, 0.0)
+                row_out[f"Absence {code} Hours"] = round(hours, 2)
+                row_out[f"Absence {code} Pay"] = round(hours * hourly_rate, 2) if paid_flag else 0.0
 
         # Add custom adjustments by bucket
         for code in absence_codes:

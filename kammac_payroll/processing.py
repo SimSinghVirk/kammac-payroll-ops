@@ -74,6 +74,17 @@ def _extract_absence_days(row: pd.Series, has_second_half: bool) -> dict[str, fl
     return days
 
 
+def _extract_absence_codes(row: pd.Series) -> list[str]:
+    code1 = safe_str(row.get("ABS_HALF_DAY_1")).upper()
+    code2 = safe_str(row.get("ABS_HALF_DAY_2")).upper()
+    codes = []
+    if code1:
+        codes.append(code1)
+    if code2:
+        codes.append(code2)
+    return codes
+
+
 def _row_missing_punch(row: pd.Series) -> bool:
     in1 = safe_str(row.get("IN_1"))
     out1 = safe_str(row.get("OUT_1"))
@@ -281,6 +292,10 @@ def process_run(
     synel_period["_row_total_hours"] = synel_period[pay_element_cols].apply(
         lambda r: sum((coerce_numeric(v) or 0.0) for v in r), axis=1
     )
+    if "BASIC PAY" in synel_period.columns:
+        synel_period["_row_basic_hours"] = synel_period["BASIC PAY"].apply(lambda v: coerce_numeric(v) or 0.0)
+    else:
+        synel_period["_row_basic_hours"] = 0.0
     synel_period["_row_overtime_hours"] = synel_period.apply(_overtime_hours, axis=1)
 
     employee_groups = synel_period.groupby("Emp No", dropna=False)
@@ -318,11 +333,15 @@ def process_run(
         unpaid_absence_days = 0.0
         paid_absence_days = 0.0
         unknown_absence_rows: list[dict[str, Any]] = []
+        absence_hours_by_code: dict[str, float] = {}
+        worked_hours = 0.0
 
         has_second_abs = "ABS_HALF_DAY_2" in group.columns
         for _, row in group.iterrows():
             days = _extract_absence_days(row, has_second_abs)
             if not days:
+                # If no absence code, treat BASIC PAY hours as worked hours (hourly)
+                worked_hours += coerce_numeric(row.get("_row_basic_hours")) or 0.0
                 continue
             for code, day_count in days.items():
                 absence_days[code] = absence_days.get(code, 0.0) + day_count
@@ -337,6 +356,15 @@ def process_run(
                             "code": code,
                         }
                     )
+            # Allocate BASIC PAY hours to absence bucket(s) to avoid double count
+            codes = _extract_absence_codes(row)
+            basic_hours = coerce_numeric(row.get("_row_basic_hours")) or 0.0
+            if codes and basic_hours > 0:
+                per_code = basic_hours / len(codes)
+                for code in codes:
+                    absence_hours_by_code[code] = absence_hours_by_code.get(code, 0.0) + per_code
+            elif basic_hours > 0:
+                worked_hours += basic_hours
 
         # Missing punch detection
         missing_punch_dates: list[pd.Timestamp] = []
@@ -440,6 +468,8 @@ def process_run(
                 "paid_absence_days": paid_absence_days,
                 "unpaid_absence_days": unpaid_absence_days,
                 "absence_days_by_code": absence_days,
+                "absence_hours_by_code": absence_hours_by_code,
+                "worked_hours": worked_hours,
                 "daily_rate_divisor": divisor,
                 "daily_rate": daily_rate,
             }
