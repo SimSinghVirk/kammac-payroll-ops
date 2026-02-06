@@ -633,9 +633,11 @@ if processed is not None:
     with st.form("manual_adjustments_form", clear_on_submit=True):
         employee_rows = processed["employee_df"].copy()
         employee_rows["employee_id"] = employee_rows["employee_id"].astype(str)
+        inferred_len = int(employee_rows["employee_id"].astype(str).str.len().max() or 0)
+        pad_len = int(employee_id_length) if employee_id_length else inferred_len
         employee_rows["label"] = (
             employee_rows["employee_id"].astype(str).apply(
-                lambda v: v.zfill(int(employee_id_length)) if employee_id_length else v
+                lambda v: v.zfill(pad_len) if pad_len else v
             )
             + " - "
             + employee_rows["firstname"].fillna("").astype(str)
@@ -753,8 +755,10 @@ else:
         row = exception_row_by_id.get(exc.exception_id)
         if row:
             emp_id_display = str(row["employee_id"])
-            if employee_id_length:
-                emp_id_display = emp_id_display.zfill(int(employee_id_length))
+            pad_len = int(employee_id_length) if employee_id_length else len(emp_id_display)
+            if employee_id_length is None or employee_id_length == 0:
+                pad_len = max(pad_len, len(emp_id_display))
+            emp_id_display = emp_id_display.zfill(pad_len)
             table_rows.append(
                 {
                     "Employee": emp_id_display,
@@ -780,8 +784,10 @@ else:
     for exc in exceptions_view:
         row = exception_row_by_id.get(exc.exception_id)
         emp_id_display = str(row["employee_id"])
-        if employee_id_length:
-            emp_id_display = emp_id_display.zfill(int(employee_id_length))
+        pad_len = int(employee_id_length) if employee_id_length else len(emp_id_display)
+        if employee_id_length is None or employee_id_length == 0:
+            pad_len = max(pad_len, len(emp_id_display))
+        emp_id_display = emp_id_display.zfill(pad_len)
         label = f"{emp_id_display} - {row['name']} - {row['exception_type']}"
         with st.expander(label, expanded=False):
             actions = _allowed_actions(exc.exception_type)
@@ -964,8 +970,10 @@ if processed is not None:
     review_rows = []
     for _, row in processed["employee_df"].iterrows():
         employee_id = str(row.get("employee_id"))
-        if employee_id_length:
-            employee_id = employee_id.zfill(int(employee_id_length))
+        pad_len = int(employee_id_length) if employee_id_length else len(employee_id)
+        if employee_id_length is None or employee_id_length == 0:
+            pad_len = max(pad_len, len(employee_id))
+        employee_id = employee_id.zfill(pad_len)
         pay_basis = row.get("pay_basis")
         weekly_hours = row.get("weekly_hours") or 0.0
         standard_hours = row.get("standard_monthly_hours") or 0.0
