@@ -918,24 +918,37 @@ if processed is not None:
     st.session_state.absence_codes = absence_codes
     st.session_state.absence_paid_map = absence_paid_map
 
+    employee_rows = processed["employee_df"].copy()
+    employee_rows["employee_id"] = employee_rows["employee_id"].astype(str)
+    inferred_len = int(employee_rows["employee_id"].astype(str).str.len().max() or 0)
+    pad_len = int(employee_id_length) if employee_id_length else inferred_len
+    employee_rows["label"] = (
+        employee_rows["employee_id"].astype(str).apply(
+            lambda v: v.zfill(pad_len) if pad_len else v
+        )
+        + " - "
+        + employee_rows["firstname"].fillna("").astype(str)
+        + " "
+        + employee_rows["surname"].fillna("").astype(str)
+    ).str.strip()
+    employee_labels = employee_rows["label"].tolist()
+    label_to_id = dict(zip(employee_labels, employee_rows["employee_id"].tolist()))
+
+    selected_employee_label = st.selectbox("Employee", employee_labels, key="manual_employee_label")
+    selected_employee_id = label_to_id.get(selected_employee_label, "")
+    selected_row = None
+    if selected_employee_id:
+        matches = employee_rows[employee_rows["employee_id"] == selected_employee_id]
+        if not matches.empty:
+            selected_row = matches.iloc[0]
+
+    if selected_row is not None:
+        location_text = selected_row.get("location", "")
+        if location_text:
+            st.caption(f"Location: {location_text}")
+
     with st.form("manual_adjustments_form", clear_on_submit=True):
-        employee_rows = processed["employee_df"].copy()
-        employee_rows["employee_id"] = employee_rows["employee_id"].astype(str)
-        inferred_len = int(employee_rows["employee_id"].astype(str).str.len().max() or 0)
-        pad_len = int(employee_id_length) if employee_id_length else inferred_len
-        employee_rows["label"] = (
-            employee_rows["employee_id"].astype(str).apply(
-                lambda v: v.zfill(pad_len) if pad_len else v
-            )
-            + " - "
-            + employee_rows["firstname"].fillna("").astype(str)
-            + " "
-            + employee_rows["surname"].fillna("").astype(str)
-        ).str.strip()
-        employee_labels = employee_rows["label"].tolist()
-        label_to_id = dict(zip(employee_labels, employee_rows["employee_id"].tolist()))
-        adj_employee_label = st.selectbox("Employee", employee_labels)
-        adj_employee = label_to_id.get(adj_employee_label, "")
+        adj_employee = selected_employee_id
         adj_type = st.selectbox("Adjustment Type", ["hours", "money"])
         adj_amount = st.number_input("Adjustment Amount (+/-)", value=0.0, step=0.25)
         adj_bucket = st.selectbox("Absence Bucket", absence_options if absence_options else ["BASIC"])
@@ -989,29 +1002,7 @@ if processed is not None:
         st.dataframe(pd.DataFrame(st.session_state.manual_adjustments), use_container_width=True, hide_index=True)
 
     st.subheader("Date Adjustments")
-    employee_rows = processed["employee_df"].copy()
-    employee_rows["employee_id"] = employee_rows["employee_id"].astype(str)
-    inferred_len = int(employee_rows["employee_id"].astype(str).str.len().max() or 0)
-    pad_len = int(employee_id_length) if employee_id_length else inferred_len
-    employee_rows["label"] = (
-        employee_rows["employee_id"].astype(str).apply(
-            lambda v: v.zfill(pad_len) if pad_len else v
-        )
-        + " - "
-        + employee_rows["firstname"].fillna("").astype(str)
-        + " "
-        + employee_rows["surname"].fillna("").astype(str)
-    ).str.strip()
-    employee_labels = employee_rows["label"].tolist()
-    label_to_id = dict(zip(employee_labels, employee_rows["employee_id"].tolist()))
-
     with st.form("date_adjustments_form", clear_on_submit=True):
-        date_adj_employee_label = st.selectbox(
-            "Employee (Date Adjustment)",
-            employee_labels,
-            key="date_adj_employee_label",
-        )
-        date_adj_employee = label_to_id.get(date_adj_employee_label, "")
         date_adj_date = st.date_input("Adjustment Date")
         date_adj_hours = st.number_input("Adjustment Hours (+/-)", value=0.0, step=0.25)
         date_adj_bucket = st.selectbox(
@@ -1023,7 +1014,7 @@ if processed is not None:
         if add_date_adj:
             st.session_state.date_adjustments.append(
                 {
-                    "employee_id": date_adj_employee,
+                    "employee_id": selected_employee_id,
                     "date": date_adj_date.isoformat() if date_adj_date else "",
                     "hours": date_adj_hours,
                     "bucket": date_adj_bucket.split(" - ")[0],
@@ -1041,19 +1032,23 @@ if processed is not None:
         )
 
     if processed is not None:
-        selected_employee_id = label_to_id.get(st.session_state.get("date_adj_employee_label", ""), "")
         if selected_employee_id:
-            breakdown = _build_daily_breakdown(
-                selected_employee_id,
-                processed,
-                period_start,
-                period_end,
-                absence_codes,
-                absence_paid_map,
-            )
-            if not breakdown.empty:
-                st.subheader("Daily Breakdown (Selected Employee)")
-                st.dataframe(breakdown, use_container_width=True, hide_index=True)
+            st.subheader("Daily Breakdown (Selected Employee)")
+            if period_start is None or period_end is None:
+                st.caption("Set Period Start and Period End to view daily breakdown.")
+            else:
+                breakdown = _build_daily_breakdown(
+                    selected_employee_id,
+                    processed,
+                    period_start,
+                    period_end,
+                    absence_codes,
+                    absence_paid_map,
+                )
+                if breakdown.empty:
+                    st.caption("No daily data available.")
+                else:
+                    st.dataframe(breakdown, use_container_width=True, hide_index=True)
 else:
     st.caption("Run processing to enable manual adjustments.")
 
