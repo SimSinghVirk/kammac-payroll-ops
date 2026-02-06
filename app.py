@@ -1555,6 +1555,8 @@ if processed is not None:
             base_monthly_pay = (regular_hours + paid_abs_hours) * hourly_rate
             overtime_money = (synel_overtime_hours + overtime_hours_adjusted) * hourly_rate * 1.5
 
+        regular_pay = regular_hours * hourly_rate if pay_basis != "SALARIED" else base_monthly_pay
+
         deduction_money = (deduction_days * hours_per_day + deduction_hours) * hourly_rate
         custom_money = (custom_hours_delta * hourly_rate) + custom_money_delta
         # Allowances
@@ -1597,9 +1599,10 @@ if processed is not None:
                 "Custom Money Delta": round(custom_money_delta, 2),
                 "Hourly Rate": round(hourly_rate, 4),
                 "Base Monthly Pay": round(base_monthly_pay, 2),
+                "REGULAR PAY": round(regular_pay, 2),
                 "Deduction Money": round(deduction_money, 2),
                 "Custom Money": round(custom_money, 2),
-                "Overtime Money": round(overtime_money, 2),
+                "Overtime PAY": round(overtime_money, 2),
                 "Car Allowance": round(car_allowance, 2),
                 "FM/FA Weekly": round(fire_marshal_weekly, 2),
                 "FM/FA Weeks": round(weeks_in_period, 3),
@@ -1631,6 +1634,27 @@ if processed is not None:
         review_rows.append(row_out)
 
     review_df = pd.DataFrame(review_rows)
+    preferred_order = [
+        "Employee Id",
+        "Name",
+        "Cost Centre",
+        "Location",
+        "Pay Basis",
+        "Annual Salary",
+        "Base Monthly Hours",
+        "Final Base Hours",
+        "Hourly Rate",
+        "Regular Hours",
+        "Overtime Hours (Synel)",
+        "Paid Absence Hours",
+        "REGULAR PAY",
+        "Overtime PAY",
+        "Absence HP Pay",
+        "Total Pay",
+    ]
+    preferred_present = [col for col in preferred_order if col in review_df.columns]
+    remaining = [col for col in review_df.columns if col not in preferred_order]
+    review_df = review_df[preferred_present + remaining]
     st.dataframe(review_df, use_container_width=True, hide_index=True)
     review_csv = review_df.to_csv(index=False).encode("utf-8")
     st.download_button(
