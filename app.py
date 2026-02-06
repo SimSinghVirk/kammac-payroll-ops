@@ -663,26 +663,26 @@ else:
             )
 
             extra_fields: dict[str, float] = {}
-                if selected_action == "deduct_unpaid_days":
-                    extra_fields["deduction_days"] = st.number_input(
-                        "Deduction days",
-                        min_value=0.0,
-                        step=0.5,
-                        key=f"ded_days_{exc.exception_id}",
-                    )
-                    extra_fields["deduction_hours"] = st.number_input(
-                        "Deduction hours",
-                        min_value=0.0,
-                        step=0.25,
-                        key=f"ded_hours_{exc.exception_id}",
-                    )
-                elif selected_action == "approve_overtime":
-                    extra_fields["overtime_hours"] = st.number_input(
-                        "Overtime hours",
-                        min_value=0.0,
-                        step=0.5,
-                        key=f"ot_hours_{exc.exception_id}",
-                    )
+            if selected_action == "deduct_unpaid_days":
+                extra_fields["deduction_days"] = st.number_input(
+                    "Deduction days",
+                    min_value=0.0,
+                    step=0.5,
+                    key=f"ded_days_{exc.exception_id}",
+                )
+                extra_fields["deduction_hours"] = st.number_input(
+                    "Deduction hours",
+                    min_value=0.0,
+                    step=0.25,
+                    key=f"ded_hours_{exc.exception_id}",
+                )
+            elif selected_action == "approve_overtime":
+                extra_fields["overtime_hours"] = st.number_input(
+                    "Overtime hours",
+                    min_value=0.0,
+                    step=0.5,
+                    key=f"ot_hours_{exc.exception_id}",
+                )
             elif selected_action == "custom_adjustment":
                 adj_type = st.selectbox(
                     "Adjustment Type",
