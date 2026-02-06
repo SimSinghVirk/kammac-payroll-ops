@@ -516,8 +516,8 @@ processed = None
 if can_process:
     if st.button("Run Processing"):
         try:
-            exclude_locations_list = [
-                loc.strip() for loc in excluded_locations.split(",") if loc.strip()
+            exclude_locations_list = excluded_locations if isinstance(excluded_locations, list) else [
+                loc.strip() for loc in str(excluded_locations).split(",") if loc.strip()
             ]
             processed = process_run(
                 mapping_df,
