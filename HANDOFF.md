@@ -69,3 +69,5 @@ Includes:
 - Removed debug panels (credentials/diagnostics) for cleaner UI.
 - Fixed nested expander error in exception editors.
 - Auto-rerun after sheet auto-load so Exclude Locations appears immediately.
+- Added pay type selector (regular vs overtime) for adjustments and date adjustments.
+- Added OTHER pay bucket for adjustments.
