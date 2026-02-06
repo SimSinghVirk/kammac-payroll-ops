@@ -595,8 +595,10 @@ if view_mode == "Employee Lookup":
 
 st.subheader("4. Manual Adjustments (No Exception)")
 if processed is not None:
-    # Build absence options for bucket selection
+    # Build absence options + paid/unpaid map for bucket selection
     absence_options = []
+    absence_codes = []
+    absence_paid_map = {}
     if absence_df is not None and "Short Name" in absence_df.columns:
         temp_codes = (
             absence_df["Short Name"]
@@ -611,9 +613,22 @@ if processed is not None:
             .str.strip()
             .tolist()
         )
-        for code, desc in zip(temp_codes, temp_desc):
+        temp_paid = (
+            absence_df.get("Include in Actual Worked Hrs", pd.Series([""]))
+            .astype(str)
+            .str.strip()
+            .str.lower()
+            .tolist()
+        )
+        for code, desc, paid_flag in zip(temp_codes, temp_desc, temp_paid):
             if code:
+                absence_codes.append(code)
                 absence_options.append(f"{code} - {desc}" if desc else code)
+                absence_paid_map[code] = paid_flag == "yes"
+    absence_codes = sorted(set(absence_codes))
+    st.session_state.absence_options = absence_options
+    st.session_state.absence_codes = absence_codes
+    st.session_state.absence_paid_map = absence_paid_map
 
     with st.form("manual_adjustments_form", clear_on_submit=True):
         employee_rows = processed["employee_df"].copy()
@@ -659,27 +674,9 @@ open_exceptions = [e for e in exceptions if not e.is_resolved()]
 
 st.write(f"Open exceptions: {len(open_exceptions)}")
 
-absence_options = []
-absence_codes = []
-if absence_df is not None and "Short Name" in absence_df.columns:
-    temp_codes = (
-        absence_df["Short Name"]
-        .astype(str)
-        .str.strip()
-        .str.upper()
-        .tolist()
-    )
-    temp_desc = (
-        absence_df.get("Description", pd.Series([""] * len(temp_codes)))
-        .astype(str)
-        .str.strip()
-        .tolist()
-    )
-    for code, desc in zip(temp_codes, temp_desc):
-        if code:
-            absence_codes.append(code)
-            absence_options.append(f"{code} - {desc}" if desc else code)
-absence_codes = sorted(set(absence_codes))
+absence_options = st.session_state.get("absence_options", [])
+absence_codes = st.session_state.get("absence_codes", [])
+absence_paid_map = st.session_state.get("absence_paid_map", {})
 
 def _exception_dates(details: dict) -> str:
     if not details:
@@ -1013,7 +1010,7 @@ if processed is not None:
             custom_by_code_hours[bucket] = custom_by_code_hours.get(bucket, 0.0) + (adj_amount if adj_type == "hours" else 0.0)
             custom_by_code_money[bucket] = custom_by_code_money.get(bucket, 0.0) + (adj_amount if adj_type == "money" else 0.0)
 
-        hours_per_day = (weekly_hours / 5.0) if weekly_hours else 0.0
+        hours_per_day = (weekly_hours / 5.0) if weekly_hours else 8.0
         final_base_hours = standard_hours - (deduction_days * hours_per_day) - deduction_hours + custom_hours_delta
         if final_base_hours < 0:
             final_base_hours = 0.0
@@ -1022,12 +1019,26 @@ if processed is not None:
         synel_overtime_hours = row.get("overtime_hours_synel") or 0.0
         regular_hours = max((final_base_hours or 0.0) - synel_overtime_hours, 0.0)
 
+        # Paid/unpaid absence impact for hourly
+        abs_map = row.get("absence_days_by_code") or {}
+        paid_abs_days = 0.0
+        unpaid_abs_days = 0.0
+        for code, days in abs_map.items():
+            if absence_paid_map.get(code, False):
+                paid_abs_days += days
+            else:
+                unpaid_abs_days += days
+        paid_abs_hours = paid_abs_days * hours_per_day
+        unpaid_abs_hours = unpaid_abs_days * hours_per_day
+        paid_abs_money = paid_abs_hours * hourly_rate
+
         if pay_basis == "SALARIED":
             base_monthly_pay = annual_salary / 12.0
             overtime_money = overtime_hours * hourly_rate
         else:
             base_monthly_pay = regular_hours * hourly_rate
             overtime_money = synel_overtime_hours * hourly_rate * 1.5
+            base_monthly_pay += paid_abs_money
 
         deduction_money = (deduction_days * hours_per_day + deduction_hours) * hourly_rate
         custom_money = (custom_hours_delta * hourly_rate) + custom_money_delta
@@ -1064,6 +1075,8 @@ if processed is not None:
                 "Regular Hours": round(regular_hours, 2),
                 "Overtime Hours (Synel)": round(synel_overtime_hours, 2),
                 "Overtime Hours (Approved)": round(overtime_hours, 2),
+                "Paid Absence Hours": round(paid_abs_hours, 2),
+                "Unpaid Absence Hours": round(unpaid_abs_hours, 2),
                 "Custom Hours Delta": round(custom_hours_delta, 2),
                 "Custom Money Delta": round(custom_money_delta, 2),
                 "Hourly Rate": round(hourly_rate, 4),
@@ -1079,7 +1092,6 @@ if processed is not None:
             }
 
         # Add absence code breakdown columns
-        abs_map = row.get("absence_days_by_code") or {}
         for code in absence_codes:
             days = abs_map.get(code, 0.0)
             row_out[f"Absence {code} Days"] = round(days, 2)
@@ -1088,7 +1100,8 @@ if processed is not None:
                 daily_rate = row.get("daily_rate") or 0.0
                 row_out[f"Absence {code} Pay"] = round(days * daily_rate, 2)
             else:
-                row_out[f"Absence {code} Pay"] = round(days * hours_per_day * hourly_rate, 2)
+                paid_flag = absence_paid_map.get(code, False)
+                row_out[f"Absence {code} Pay"] = round(days * hours_per_day * hourly_rate, 2) if paid_flag else 0.0
 
         # Add custom adjustments by bucket
         for code in absence_codes:
