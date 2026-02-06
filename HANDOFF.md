@@ -60,3 +60,12 @@ Includes:
 - Sage export still only base + overtime; absence buckets not exported (needs rate codes)
 - UI styling still functional, not polished
 
+## Recent Changes (2026-02-06)
+- Added Location to Sage export and Final Review table.
+- Prevented punch fallback from double-counting overtime-only rows.
+- Exported Excel-safe, padded Employee IDs (e.g., `=\"00012\"`) for CSVs.
+- Added pay preview (before/after draft) in manual adjustments and exception editors.
+- Added per-date adjustments and daily breakdown (all dates, includes 0s).
+- Removed debug panels (credentials/diagnostics) for cleaner UI.
+- Fixed nested expander error in exception editors.
+- Auto-rerun after sheet auto-load so Exclude Locations appears immediately.
