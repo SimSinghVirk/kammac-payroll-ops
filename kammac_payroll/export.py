@@ -10,6 +10,17 @@ from .constants import SAGE_EXPORT_COLUMNS
 @dataclass
 class ExportConfig:
     payroll_type: str
+    employee_id_length: int | None = None
+    excel_safe_ids: bool = True
+
+
+def _format_employee_id(value: Any, pad_len: int | None, excel_safe: bool) -> str:
+    text = "" if value is None else str(value).strip()
+    if pad_len and text.isdigit():
+        text = text.zfill(pad_len)
+    if excel_safe:
+        return f'="{text}"' if text else ""
+    return text
 
 
 def _pick_rate_code(pay_elements_df: pd.DataFrame, component_name: str, payroll_type: str) -> str:
@@ -51,7 +62,11 @@ def build_sage_export(
         if row.get("pay_basis") != "SALARIED":
             continue
 
-        employee_id = row.get("employee_id")
+        employee_id = _format_employee_id(
+            row.get("employee_id"),
+            config.employee_id_length,
+            config.excel_safe_ids,
+        )
         standard_hours = row.get("standard_monthly_hours")
         weekly_hours = row.get("weekly_hours")
 

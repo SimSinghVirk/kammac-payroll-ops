@@ -1184,7 +1184,11 @@ if export_ready:
                 processed["employee_df"],
                 exceptions,
                 pay_elements_df,
-                ExportConfig(payroll_type=payroll_type),
+                ExportConfig(
+                    payroll_type=payroll_type,
+                    employee_id_length=int(employee_id_length) if employee_id_length else None,
+                    excel_safe_ids=True,
+                ),
             )
             st.session_state.export_df = export_df
             st.session_state.run_status = "READY_TO_EXPORT"
