@@ -370,7 +370,7 @@ def process_run(
                 {"rows": unknown_absence_rows},
             )
 
-        if pay_basis == "SALARIED":
+        if pay_basis == "SALARIED" and config.payroll_type == "admin_monthly":
             for date_value in missing_punch_dates:
                 add_exception(
                     "MISSING_PUNCH_DAY",
@@ -401,7 +401,7 @@ def process_run(
                     )
 
         # Over/under hours exceptions
-        if pay_basis == "SALARIED" and standard_monthly_hours is not None:
+        if pay_basis == "SALARIED" and standard_monthly_hours is not None and config.payroll_type == "admin_monthly":
             if actual_hours < standard_monthly_hours - config.variance_tolerance:
                 add_exception(
                     "UNDER_HOURS_SALARIED",
