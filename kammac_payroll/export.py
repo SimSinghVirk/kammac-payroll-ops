@@ -85,6 +85,7 @@ def build_sage_export(
                 "Salary ID": employee_id,
                 "Rate Code": base_rate_code,
                 "Hours": round(final_base_hours, 2) if final_base_hours is not None else 0,
+                "Location": row.get("location"),
             }
         )
 
@@ -95,6 +96,7 @@ def build_sage_export(
                     "Salary ID": employee_id,
                     "Rate Code": rate_code,
                     "Hours": round(overtime_hours, 2),
+                    "Location": row.get("location"),
                 }
             )
 

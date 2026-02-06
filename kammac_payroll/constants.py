@@ -62,4 +62,4 @@ EXCEPTION_TYPES = [
 PAID_ABSENCE_CODES_DEFAULT = {"AP", "HP", "SP", "BP", "MAT", "SHP", "PAT"}
 UNPAID_ABSENCE_CODES_DEFAULT = {"AUP", "SUP", "DEP", "BUP", "MUP", "SHUP", "UAUP"}
 
-SAGE_EXPORT_COLUMNS = ["Salary ID", "Rate Code", "Hours"]
+SAGE_EXPORT_COLUMNS = ["Salary ID", "Rate Code", "Hours", "Location"]

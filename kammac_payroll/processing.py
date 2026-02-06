@@ -359,8 +359,11 @@ def process_run(
                 if basic_hours > 0:
                     worked_hours += basic_hours
                 else:
-                    # fall back to punches if basic hours not provided
-                    worked_hours += _row_worked_hours_from_punches(row)
+                    # If other paid elements exist (e.g. overtime/holiday), avoid double counting.
+                    other_hours = coerce_numeric(row.get("_row_total_hours")) or 0.0
+                    if other_hours <= 0:
+                        # fall back to punches if basic hours not provided and no other hours recorded
+                        worked_hours += _row_worked_hours_from_punches(row)
                 continue
             for code, day_count in days.items():
                 absence_days[code] = absence_days.get(code, 0.0) + day_count
