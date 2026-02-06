@@ -98,6 +98,13 @@ def _pay_element_columns(df: pd.DataFrame) -> list[str]:
     return [col for col in candidates if col in df.columns]
 
 
+def _overtime_hours(row: pd.Series) -> float:
+    # Use TIME & A 1/2 if present, else OVERTIME. Do not double count.
+    time_half = coerce_numeric(row.get("TIME & A 1/2")) or 0.0
+    overtime = coerce_numeric(row.get("OVERTIME")) or 0.0
+    return time_half if time_half > 0 else overtime
+
+
 def process_run(
     mapping_df: pd.DataFrame,
     absence_df: pd.DataFrame,
@@ -269,6 +276,7 @@ def process_run(
     synel_period["_row_total_hours"] = synel_period[pay_element_cols].apply(
         lambda r: sum((coerce_numeric(v) or 0.0) for v in r), axis=1
     )
+    synel_period["_row_overtime_hours"] = synel_period.apply(_overtime_hours, axis=1)
 
     employee_groups = synel_period.groupby("Emp No", dropna=False)
 
@@ -298,6 +306,7 @@ def process_run(
             blocking.append(f"Missing/invalid weekly contract hours for {emp_id}")
 
         actual_hours = group["_row_total_hours"].sum()
+        overtime_hours = group["_row_overtime_hours"].sum()
 
         # Absence days per employee
         absence_days: dict[str, float] = {}
@@ -422,6 +431,7 @@ def process_run(
                 "weekly_hours": weekly_hours,
                 "standard_monthly_hours": standard_monthly_hours,
                 "actual_hours": actual_hours,
+                "overtime_hours_synel": overtime_hours,
                 "paid_absence_days": paid_absence_days,
                 "unpaid_absence_days": unpaid_absence_days,
                 "absence_days_by_code": absence_days,
