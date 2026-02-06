@@ -538,6 +538,26 @@ if processed is not None:
 
 st.subheader("4. Manual Adjustments (No Exception)")
 if processed is not None:
+    # Build absence options for bucket selection
+    absence_options = []
+    if absence_df is not None and "Short Name" in absence_df.columns:
+        temp_codes = (
+            absence_df["Short Name"]
+            .astype(str)
+            .str.strip()
+            .str.upper()
+            .tolist()
+        )
+        temp_desc = (
+            absence_df.get("Description", pd.Series([""] * len(temp_codes)))
+            .astype(str)
+            .str.strip()
+            .tolist()
+        )
+        for code, desc in zip(temp_codes, temp_desc):
+            if code:
+                absence_options.append(f"{code} - {desc}" if desc else code)
+
     with st.form("manual_adjustments_form", clear_on_submit=True):
         employee_rows = processed["employee_df"].copy()
         employee_rows["employee_id"] = employee_rows["employee_id"].astype(str)
