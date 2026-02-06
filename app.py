@@ -113,7 +113,23 @@ def _load_snapshot(token: str) -> None:
         if snapshot.get("export_df") is not None:
             st.session_state.export_df = snapshot.get("export_df")
     except Exception:
-        pass
+        try:
+            path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def _safe_df_for_display(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None:
+        return df
+    safe_df = df.copy()
+    for col in safe_df.columns:
+        series = safe_df[col]
+        if series.apply(lambda v: isinstance(v, (dict, list, tuple, set))).any():
+            safe_df[col] = series.apply(
+                lambda v: json.dumps(v) if isinstance(v, (dict, list, tuple, set)) else v
+            )
+    return safe_df
 
 
 token = _session_token()
@@ -557,7 +573,7 @@ if processed is not None:
         for issue in processed["blocking"]:
             st.write(f"- {issue}")
 
-    st.dataframe(processed["employee_df"], use_container_width=True)
+    st.dataframe(_safe_df_for_display(processed["employee_df"]), use_container_width=True)
 
 
 if view_mode == "Employee Lookup":
