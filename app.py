@@ -1033,7 +1033,8 @@ if processed is not None:
 
         # Hourly vs salaried pay rules
         synel_overtime_hours = row.get("overtime_hours_synel") or 0.0
-        regular_hours = max((final_base_hours or 0.0) - synel_overtime_hours, 0.0)
+        actual_hours = row.get("actual_hours") or 0.0
+        regular_hours = max((actual_hours or 0.0) - synel_overtime_hours, 0.0)
 
         # Paid/unpaid absence impact for hourly
         abs_map = row.get("absence_days_by_code") or {}
@@ -1046,7 +1047,6 @@ if processed is not None:
                 unpaid_abs_days += days
         paid_abs_hours = paid_abs_days * hours_per_day
         unpaid_abs_hours = unpaid_abs_days * hours_per_day
-        paid_abs_money = paid_abs_hours * hourly_rate
 
         if pay_basis == "SALARIED":
             base_monthly_pay = annual_salary / 12.0
@@ -1054,7 +1054,6 @@ if processed is not None:
         else:
             base_monthly_pay = regular_hours * hourly_rate
             overtime_money = synel_overtime_hours * hourly_rate * 1.5
-            base_monthly_pay += paid_abs_money
 
         deduction_money = (deduction_days * hours_per_day + deduction_hours) * hourly_rate
         custom_money = (custom_hours_delta * hourly_rate) + custom_money_delta
