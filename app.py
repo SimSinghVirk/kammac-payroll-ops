@@ -159,7 +159,24 @@ with st.sidebar:
     ignore_non_numeric_emp_no = st.checkbox("Ignore non-numeric Emp No rows (temporary)")
     ignore_unmapped_zero_activity = st.checkbox("Ignore unmapped with zero activity (temporary)")
     employee_id_length = st.number_input("Employee ID length (pad)", min_value=0, max_value=12, value=5, step=1)
-    excluded_locations = st.text_input("Exclude Locations (comma-separated)")
+    excluded_locations = []
+    if mapping_df is not None:
+        loc_df = mapping_df.copy()
+        if "Payroll Type" not in loc_df.columns and "COST CENTRE" in loc_df.columns:
+            def _derive_pt(value):
+                text = str(value).strip().lower()
+                if text.startswith("1") or "direct monthly" in text:
+                    return "direct_monthly"
+                if text.startswith("2") or "admin monthly" in text:
+                    return "admin_monthly"
+                return "unknown"
+            loc_df["Payroll Type"] = loc_df["COST CENTRE"].apply(_derive_pt)
+        if payroll_type:
+            loc_df = loc_df[loc_df["Payroll Type"] == payroll_type]
+        available_locations = sorted(loc_df["Location"].astype(str).str.strip().dropna().unique().tolist())
+        excluded_locations = st.multiselect("Exclude Locations", available_locations)
+    else:
+        st.caption("Load mapping to select locations for exclusion.")
 
 
 mapping_df = None
