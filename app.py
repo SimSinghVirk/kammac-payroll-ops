@@ -984,10 +984,19 @@ if processed is not None:
         if final_base_hours < 0:
             final_base_hours = 0.0
 
-        base_monthly_pay = annual_salary / 12.0 if pay_basis == "SALARIED" else hourly_rate * final_base_hours
+        # Hourly vs salaried pay rules
+        synel_overtime_hours = row.get("overtime_hours_synel") or 0.0
+        regular_hours = max((final_base_hours or 0.0) - synel_overtime_hours, 0.0)
+
+        if pay_basis == "SALARIED":
+            base_monthly_pay = annual_salary / 12.0
+            overtime_money = overtime_hours * hourly_rate
+        else:
+            base_monthly_pay = regular_hours * hourly_rate
+            overtime_money = synel_overtime_hours * hourly_rate * 1.5
+
         deduction_money = (deduction_days * hours_per_day + deduction_hours) * hourly_rate
         custom_money = (custom_hours_delta * hourly_rate) + custom_money_delta
-        overtime_money = overtime_hours * hourly_rate
         # Allowances
         car_allowance = row.get("car_allowance") or 0.0
         period_days = 0
@@ -1018,8 +1027,9 @@ if processed is not None:
                 "Final Base Hours": round(final_base_hours, 2),
                 "Deduction Days": round(deduction_days, 2),
                 "Deduction Hours": round(deduction_hours, 2),
+                "Regular Hours": round(regular_hours, 2),
+                "Overtime Hours (Synel)": round(synel_overtime_hours, 2),
                 "Overtime Hours (Approved)": round(overtime_hours, 2),
-                "Overtime Hours (Synel)": round(row.get("overtime_hours_synel") or 0.0, 2),
                 "Custom Hours Delta": round(custom_hours_delta, 2),
                 "Custom Money Delta": round(custom_money_delta, 2),
                 "Hourly Rate": round(hourly_rate, 4),
