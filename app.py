@@ -124,6 +124,7 @@ if "run_status" not in st.session_state:
 
 with st.sidebar:
     st.header("Run Controls")
+    view_mode = st.selectbox("View", ["Payroll Run", "Employee Lookup"])
     payroll_type = st.selectbox("Payroll Type", [""] + PAYROLL_TYPES, index=0)
     period_start = st.date_input("Period Start", value=None)
     period_end = st.date_input("Period End", value=None)
@@ -558,6 +559,39 @@ if processed is not None:
 
     st.dataframe(processed["employee_df"], use_container_width=True)
 
+
+if view_mode == "Employee Lookup":
+    st.subheader("Employee Lookup")
+    if processed is None:
+        st.caption("Run processing to enable lookup.")
+    else:
+        employee_df = processed["employee_df"].copy()
+        employee_df["employee_id"] = employee_df["employee_id"].astype(str)
+        employee_df["label"] = (
+            employee_df["employee_id"].astype(str)
+            + " - "
+            + employee_df["firstname"].fillna("").astype(str)
+            + " "
+            + employee_df["surname"].fillna("").astype(str)
+        ).str.strip()
+        search_field = st.selectbox("Filter Field", ["Employee Id", "Name", "Location", "Cost Centre"])
+        query = st.text_input("Search")
+        if query:
+            if search_field == "Employee Id":
+                filtered = employee_df[employee_df["employee_id"].str.contains(query, case=False, na=False)]
+            elif search_field == "Name":
+                filtered = employee_df["label"].str.contains(query, case=False, na=False)
+                filtered = employee_df[filtered]
+            elif search_field == "Location":
+                filtered = employee_df["location"].astype(str).str.contains(query, case=False, na=False)
+                filtered = employee_df[filtered]
+            else:
+                filtered = employee_df["cost_centre"].astype(str).str.contains(query, case=False, na=False)
+                filtered = employee_df[filtered]
+        else:
+            filtered = employee_df
+        st.dataframe(filtered, use_container_width=True, hide_index=True)
+    st.stop()
 
 st.subheader("4. Manual Adjustments (No Exception)")
 if processed is not None:
