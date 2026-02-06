@@ -429,7 +429,7 @@ def process_run(
                     )
 
         # Over/under hours exceptions
-        if pay_basis == "SALARIED" and standard_monthly_hours is not None and config.payroll_type == "admin_monthly":
+        if pay_basis == "SALARIED" and standard_monthly_hours is not None:
             if actual_hours < standard_monthly_hours - config.variance_tolerance:
                 add_exception(
                     "UNDER_HOURS_SALARIED",
