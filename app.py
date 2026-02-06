@@ -634,7 +634,9 @@ if processed is not None:
         employee_rows = processed["employee_df"].copy()
         employee_rows["employee_id"] = employee_rows["employee_id"].astype(str)
         employee_rows["label"] = (
-            employee_rows["employee_id"].astype(str)
+            employee_rows["employee_id"].astype(str).apply(
+                lambda v: v.zfill(int(employee_id_length)) if employee_id_length else v
+            )
             + " - "
             + employee_rows["firstname"].fillna("").astype(str)
             + " "
@@ -750,9 +752,12 @@ else:
     for exc in exceptions_view:
         row = exception_row_by_id.get(exc.exception_id)
         if row:
+            emp_id_display = str(row["employee_id"])
+            if employee_id_length:
+                emp_id_display = emp_id_display.zfill(int(employee_id_length))
             table_rows.append(
                 {
-                    "Employee": row["employee_id"],
+                    "Employee": emp_id_display,
                     "Name": row["name"],
                     "Cost Centre": row["cost_centre"],
                     "Type": row["exception_type"],
@@ -774,7 +779,10 @@ else:
     st.subheader("Exception Editors")
     for exc in exceptions_view:
         row = exception_row_by_id.get(exc.exception_id)
-        label = f"{row['employee_id']} - {row['name']} - {row['exception_type']}"
+        emp_id_display = str(row["employee_id"])
+        if employee_id_length:
+            emp_id_display = emp_id_display.zfill(int(employee_id_length))
+        label = f"{emp_id_display} - {row['name']} - {row['exception_type']}"
         with st.expander(label, expanded=False):
             actions = _allowed_actions(exc.exception_type)
             selected_action = st.selectbox("Action", actions, key=f"action_{exc.exception_id}")
