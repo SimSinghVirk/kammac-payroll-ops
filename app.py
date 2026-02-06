@@ -44,6 +44,8 @@ if "audit_log" not in st.session_state:
     st.session_state.audit_log = []
 if "pending_resolutions" not in st.session_state:
     st.session_state.pending_resolutions = {}
+if "manual_adjustments" not in st.session_state:
+    st.session_state.manual_adjustments = []
 
 # --- Session persistence (login + run state) ---
 def _session_token() -> str:
@@ -652,15 +654,15 @@ else:
             info[4].write(_truncate(summary_text, 60))
             info[5].write(row["status"])
 
-            with st.expander(f"Edit {row['employee_id']} | {row['exception_type']}", expanded=False):
-                actions = _allowed_actions(exc.exception_type)
-                selected_action = st.selectbox(
-                    "Action",
-                    actions,
-                    key=f"action_{exc.exception_id}",
-                )
+        with st.expander(f"Edit {row['employee_id']} | {row['exception_type']}", expanded=False):
+            actions = _allowed_actions(exc.exception_type)
+            selected_action = st.selectbox(
+                "Action",
+                actions,
+                key=f"action_{exc.exception_id}",
+            )
 
-                extra_fields: dict[str, float] = {}
+            extra_fields: dict[str, float] = {}
                 if selected_action == "deduct_unpaid_days":
                     extra_fields["deduction_days"] = st.number_input(
                         "Deduction days",
@@ -681,24 +683,37 @@ else:
                         step=0.5,
                         key=f"ot_hours_{exc.exception_id}",
                     )
-                elif selected_action == "custom_adjustment":
-                    extra_fields["custom_hours_delta"] = st.number_input(
-                        "Custom hours (+/-)",
-                        value=0.0,
-                        step=0.25,
-                        key=f"custom_hours_{exc.exception_id}",
-                    )
-
-                comment = st.text_input(
-                    "Comment (optional)",
-                    key=f"comment_{exc.exception_id}",
+            elif selected_action == "custom_adjustment":
+                adj_type = st.selectbox(
+                    "Adjustment Type",
+                    ["hours", "money"],
+                    key=f"adj_type_{exc.exception_id}",
                 )
+                adj_amount = st.number_input(
+                    "Adjustment Amount (+/-)",
+                    value=0.0,
+                    step=0.25,
+                    key=f"adj_amount_{exc.exception_id}",
+                )
+                bucket = st.selectbox(
+                    "Absence Bucket",
+                    absence_options if absence_options else ["BASIC"],
+                    key=f"adj_bucket_{exc.exception_id}",
+                )
+                extra_fields["custom_adjustment_type"] = adj_type
+                extra_fields["custom_adjustment_amount"] = adj_amount
+                extra_fields["custom_adjustment_bucket"] = bucket.split(" - ")[0]
 
-                pending_updates[exc.exception_id] = {
-                    "action": selected_action,
-                    "details": extra_fields,
-                    "comment": comment,
-                }
+            comment = st.text_input(
+                "Comment (optional)",
+                key=f"comment_{exc.exception_id}",
+            )
+
+            pending_updates[exc.exception_id] = {
+                "action": selected_action,
+                "details": extra_fields,
+                "comment": comment,
+            }
 
                 st.markdown(
                     f"**Details:** {row['summary']}\n\n"
@@ -810,16 +825,52 @@ if processed is not None:
 
     # Build a stable list of absence codes from mapping
     absence_codes = []
+    absence_options = []
     if absence_df is not None and "Short Name" in absence_df.columns:
-        absence_codes = (
+        temp_codes = (
             absence_df["Short Name"]
             .astype(str)
             .str.strip()
             .str.upper()
             .tolist()
         )
-        absence_codes = [c for c in absence_codes if c]
+        temp_desc = (
+            absence_df.get("Description", pd.Series([""] * len(temp_codes)))
+            .astype(str)
+            .str.strip()
+            .tolist()
+        )
+        for code, desc in zip(temp_codes, temp_desc):
+            if code:
+                absence_codes.append(code)
+                absence_options.append(f"{code} - {desc}" if desc else code)
     absence_codes = sorted(set(absence_codes))
+
+    # Manual adjustments for non-exception employees
+    st.subheader("6.1 Manual Adjustments (No Exception)")
+    with st.form("manual_adjustments_form", clear_on_submit=True):
+        employee_ids = sorted(processed["employee_df"]["employee_id"].astype(str).unique().tolist())
+        adj_employee = st.selectbox("Employee", employee_ids)
+        adj_type = st.selectbox("Adjustment Type", ["hours", "money"])
+        adj_amount = st.number_input("Adjustment Amount (+/-)", value=0.0, step=0.25)
+        adj_bucket = st.selectbox("Absence Bucket", absence_options if absence_options else ["BASIC"])
+        adj_comment = st.text_input("Comment (optional)")
+        add_adj = st.form_submit_button("Add Adjustment")
+        if add_adj:
+            st.session_state.manual_adjustments.append(
+                {
+                    "employee_id": adj_employee,
+                    "type": adj_type,
+                    "amount": adj_amount,
+                    "bucket": adj_bucket.split(" - ")[0],
+                    "comment": adj_comment,
+                }
+            )
+            _save_snapshot(token)
+            st.success("Adjustment added")
+
+    if st.session_state.manual_adjustments:
+        st.dataframe(pd.DataFrame(st.session_state.manual_adjustments), use_container_width=True, hide_index=True)
 
     review_rows = []
     for _, row in processed["employee_df"].iterrows():
@@ -839,6 +890,9 @@ if processed is not None:
         deduction_days = 0.0
         deduction_hours = 0.0
         custom_hours_delta = 0.0
+        custom_money_delta = 0.0
+        custom_by_code_hours: dict[str, float] = {}
+        custom_by_code_money: dict[str, float] = {}
         overtime_hours = 0.0
         for exc in exceptions_by_emp.get(employee_id, []):
             if not exc.is_resolved():
@@ -851,7 +905,29 @@ if processed is not None:
             if action == "approve_overtime":
                 overtime_hours += float(resolution.get("overtime_hours") or 0.0)
             if action == "custom_adjustment":
-                custom_hours_delta += float(resolution.get("custom_hours_delta") or 0.0)
+                adj_type = resolution.get("custom_adjustment_type", "hours")
+                adj_amount = float(resolution.get("custom_adjustment_amount") or 0.0)
+                bucket = resolution.get("custom_adjustment_bucket", "BASIC")
+                if adj_type == "money":
+                    custom_money_delta += adj_amount
+                else:
+                    custom_hours_delta += adj_amount
+                custom_by_code_hours[bucket] = custom_by_code_hours.get(bucket, 0.0) + (adj_amount if adj_type == "hours" else 0.0)
+                custom_by_code_money[bucket] = custom_by_code_money.get(bucket, 0.0) + (adj_amount if adj_type == "money" else 0.0)
+
+        # Manual adjustments
+        for adj in st.session_state.manual_adjustments:
+            if str(adj.get("employee_id")) != employee_id:
+                continue
+            adj_type = adj.get("type", "hours")
+            adj_amount = float(adj.get("amount") or 0.0)
+            bucket = adj.get("bucket", "BASIC")
+            if adj_type == "money":
+                custom_money_delta += adj_amount
+            else:
+                custom_hours_delta += adj_amount
+            custom_by_code_hours[bucket] = custom_by_code_hours.get(bucket, 0.0) + (adj_amount if adj_type == "hours" else 0.0)
+            custom_by_code_money[bucket] = custom_by_code_money.get(bucket, 0.0) + (adj_amount if adj_type == "money" else 0.0)
 
         hours_per_day = (weekly_hours / 5.0) if weekly_hours else 0.0
         final_base_hours = standard_hours - (deduction_days * hours_per_day) - deduction_hours + custom_hours_delta
@@ -860,7 +936,7 @@ if processed is not None:
 
         base_monthly_pay = annual_salary / 12.0 if pay_basis == "SALARIED" else hourly_rate * final_base_hours
         deduction_money = (deduction_days * hours_per_day + deduction_hours) * hourly_rate
-        custom_money = custom_hours_delta * hourly_rate
+        custom_money = (custom_hours_delta * hourly_rate) + custom_money_delta
         overtime_money = overtime_hours * hourly_rate
         # Allowances
         car_allowance = row.get("car_allowance") or 0.0
@@ -894,7 +970,8 @@ if processed is not None:
                 "Deduction Hours": round(deduction_hours, 2),
                 "Overtime Hours": round(overtime_hours, 2),
                 "Custom Hours Delta": round(custom_hours_delta, 2),
-                "Hourly Rate (est)": round(hourly_rate, 4),
+                "Custom Money Delta": round(custom_money_delta, 2),
+                "Hourly Rate": round(hourly_rate, 4),
                 "Base Monthly Pay": round(base_monthly_pay, 2),
                 "Deduction Money": round(deduction_money, 2),
                 "Custom Money": round(custom_money, 2),
@@ -903,7 +980,7 @@ if processed is not None:
                 "FM/FA Weekly": round(fire_marshal_weekly, 2),
                 "FM/FA Weeks": round(weeks_in_period, 3),
                 "FM/FA Pay": round(fire_marshal_pay, 2),
-                "Total Pay (est)": round(total_money, 2),
+                "Total Pay": round(total_money, 2),
             }
 
         # Add absence code breakdown columns
@@ -917,6 +994,13 @@ if processed is not None:
                 row_out[f"Absence {code} Pay"] = round(days * daily_rate, 2)
             else:
                 row_out[f"Absence {code} Pay"] = round(days * hours_per_day * hourly_rate, 2)
+
+        # Add custom adjustments by bucket
+        for code in absence_codes:
+            if custom_by_code_hours.get(code):
+                row_out[f"Adj {code} Hours"] = round(custom_by_code_hours.get(code, 0.0), 2)
+            if custom_by_code_money.get(code):
+                row_out[f"Adj {code} Money"] = round(custom_by_code_money.get(code, 0.0), 2)
 
         review_rows.append(row_out)
 
