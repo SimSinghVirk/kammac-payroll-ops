@@ -580,8 +580,6 @@ if auth_required and not st.session_state.logged_in:
 st.subheader("1. Load Mapping Data")
 if credentials_info is None:
     st.warning("Service account credentials not detected. Add to secrets.")
-else:
-    st.success("Service account credentials detected.")
 
 def _load_google_sheets():
     def extract_sheet_id(value: str) -> str:
@@ -671,10 +669,15 @@ if auto_load_ready and st.session_state.last_sheet_config != current_config:
     st.session_state.pay_elements_df = pay_elements_df
     st.session_state.last_sheet_config = current_config
     st.session_state.last_sheet_load_at = datetime.utcnow().isoformat()
+    st.session_state.sheet_reload_pending = True
 else:
     mapping_df = st.session_state.mapping_df
     absence_df = st.session_state.absence_df
     pay_elements_df = st.session_state.pay_elements_df
+
+if st.session_state.get("sheet_reload_pending"):
+    st.session_state.sheet_reload_pending = False
+    st.rerun()
 
 st.caption("Mapping data auto-loads when Sheet IDs change.")
 if auto_load_ready:
